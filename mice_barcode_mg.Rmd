@@ -1,0 +1,225 @@
+---
+title: "mice_barcode_mg"
+output: html_document
+---
+
+```{r}
+#save.image("/media/chang/HDD-6/chang/mg/mg_lib_20220324/RData")
+#load("/media/chang/HDD-6/chang/mg/mg_lib_20220324/RData")
+```
+
+
+```{r setup, include=FALSE}
+library(Seurat)
+library(dittoSeq)
+library(harmony)
+library(SeuratWrappers)
+library(furrr)
+library(scds)
+library(qfm)
+library(presto)
+plan(multisession, workers = 32)
+```
+
+```{r}
+# data.dir should be Solo.out dir
+ReadSTAR <- function(data.dir, proj = "SeuratObject", feats = 1000, ... ) {
+  data.dir.genefull = paste0(data.dir, "/GeneFull_Ex50pAS/em/")
+  mtx <- file.path(data.dir.genefull, "matrix.mtx")
+  cells <- file.path(data.dir.genefull, "barcodes.tsv")
+  features <- file.path(data.dir.genefull, "features.tsv")
+  seurat = as.Seurat(cxds_bcds_hybrid(as.SingleCellExperiment(
+    CreateSeuratObject(ReadMtx(mtx = mtx, cells = cells, features = features), 
+         project = proj, min.features = feats))))
+  print("Adding Velocity")
+  data.dir.velo = paste0(data.dir, "/Velocyto/raw")
+  cells = file.path(data.dir.velo, "barcodes.tsv")
+  features = file.path(data.dir.velo, "features.tsv")
+  spliced = file.path(data.dir.velo, "spliced.mtx")
+  unspliced = file.path(data.dir.velo, "unspliced.mtx")
+  ambi = file.path(data.dir.velo, "ambiguous.mtx")
+  spliced = ReadMtx(mtx = spliced, cells = cells, features = features)
+  unspliced = ReadMtx(mtx = unspliced, cells = cells, features = features)
+  ambi = ReadMtx(mtx = ambi, cells = cells, features = features)
+  spliced = spliced + ambi
+  spliced = spliced[,colnames(seurat)]
+  unspliced = unspliced[,colnames(seurat)]
+  seurat[['spliced']] = CreateAssayObject(spliced)
+  seurat[['unspliced']] = CreateAssayObject(unspliced)
+  seurat[['percent.mt']] = PercentageFeatureSet(seurat, pattern = "Mt-",assay = 'RNA')
+  seurat = subset(seurat, subset=percent.mt <= 20 & hybrid_score < 1.5)
+  return(seurat)
+}
+```
+
+
+```{r}
+p31_1 = ReadSTAR("/media/chang/HDD-1/chang/weissman_mg/GP_Mouse_Lineage/P31_MG_1_Solo.out", "P31_1")
+p31_2 = ReadSTAR("/media/chang/HDD-1/chang/weissman_mg/GP_Mouse_Lineage/P31_MG_2_Solo.out", "P31_2")
+p31_3 = ReadSTAR("/media/chang/HDD-1/chang/weissman_mg/GP_Mouse_Lineage/P31_MG_3_Solo.out", "P31_3")
+p4_1 = ReadSTAR("/media/chang/HDD-1/chang/weissman_mg/GP_Mouse_Lineage/P4_MG_1_Solo.out", "P4_1")
+p4_2 = ReadSTAR("/media/chang/HDD-1/chang/weissman_mg/GP_Mouse_Lineage/P4_MG_2_Solo.out", "P4_2")
+p4_3 = ReadSTAR("/media/chang/HDD-1/chang/weissman_mg/GP_Mouse_Lineage/P4_MG_3_Solo.out", "P4_3")
+```
+
+```{r}
+p4_1 = SCTransform(p4_1, ncells=NULL, n_genes=NULL, vst.flavor='v2');p4_2 = SCTransform(p4_2, ncells=NULL, n_genes=NULL, vst.flavor='v2');p4_3 = SCTransform(p4_3, ncells=NULL, n_genes=NULL, vst.flavor='v2');p31_1 = SCTransform(p31_1, ncells=NULL, n_genes=NULL, vst.flavor='v2');p31_2 = SCTransform(p31_2, ncells=NULL, n_genes=NULL, vst.flavor='v2');p31_3 = SCTransform(p31_3, ncells=NULL, n_genes=NULL, vst.flavor='v2')
+p4_1 = RunPCA(p4_1);p4_2 = RunPCA(p4_2);p4_3 = RunPCA(p4_3);p31_1 = RunPCA(p31_1);p31_2 = RunPCA(p31_2);p31_3 = RunPCA(p31_3)
+p4_1 = RunUMAP(p4_1, dims=1:30);p4_2 = RunUMAP(p4_2, dims=1:30);p4_3 = RunUMAP(p4_3, dims=1:30);p31_1 = RunUMAP(p31_1, dims=1:30);p31_2 = RunUMAP(p31_2, dims=1:30);p31_3 = RunUMAP(p31_3, dims=1:30)
+p4_1 = FindNeighbors(p4_1, dims=1:30);p4_2 = FindNeighbors(p4_2, dims=1:30);p4_3 = FindNeighbors(p4_3, dims=1:30);p31_1 = FindNeighbors(p31_1, dims=1:30);p31_2 = FindNeighbors(p31_2, dims=1:30);p31_3 = FindNeighbors(p31_3, dims=1:30)
+p4_1 = FindClusters(p4_1, resolution = .1);p4_2 = FindClusters(p4_2, resolution = .1);p4_3 = FindClusters(p4_3, resolution = .2);p31_1 = FindClusters(p31_1, resolution = .1);p31_2 = FindClusters(p31_2, resolution = .1);p31_3 = FindClusters(p31_3, resolution = .1)
+p4_1$clusters = as.character(p4_1$SCT_snn_res.0.1);p4_2$clusters = as.character(p4_2$SCT_snn_res.0.1);p4_3$clusters = as.character(p4_3$SCT_snn_res.0.2);p31_1$clusters = as.character(p31_1$SCT_snn_res.0.1);p31_2$clusters = as.character(p31_2$SCT_snn_res.0.1);p31_3$clusters = as.character(p31_3$SCT_snn_res.0.1)
+p4_2 = subset(p4_2, idents=c(0,1,2,3,5,6))
+p4_3 = subset(p4_3, idents=c(0,1,2,3,4,5,7,8,9))
+write.csv(p4_1@meta.data,"/media/chang/HDD-6/chang/mg/mg_lib_20220324/P4_1/sc_meta.csv")
+write.csv(p4_2@meta.data,"/media/chang/HDD-6/chang/mg/mg_lib_20220324/P4_2/sc_meta.csv")
+write.csv(p4_3@meta.data,"/media/chang/HDD-6/chang/mg/mg_lib_20220324/P4_3/sc_meta.csv")
+write.csv(p31_1@meta.data,"/media/chang/HDD-6/chang/mg/mg_lib_20220324/P31_1/sc_meta.csv")
+write.csv(p31_2@meta.data,"/media/chang/HDD-6/chang/mg/mg_lib_20220324/P31_2/sc_meta.csv")
+write.csv(p31_3@meta.data,"/media/chang/HDD-6/chang/mg/mg_lib_20220324/P31_3/sc_meta.csv")
+```
+
+```{r}
+cell_allele_table = read.csv("/media/chang/HDD-6/chang/mg/mg_lib_20220324/P4_2/allele_table.csv",row.names = 1)
+ggplot(cell_allele_table, aes(x=intBC, y=UMI)) +
+    geom_point(size=2, shape=23) + theme_bw() + RotatedAxis()
+
+character_matrix = read.csv('/media/chang/HDD-6/chang/mg/mg_lib_20220324/P4_2/char_matrix.csv',row.names = 1)
+p4_2_sub = subset(p4_2, cells=rownames(character_matrix))
+character_matrix = character_matrix[colnames(p4_2_sub),]
+p4_2_sub[['character']] = CreateAssayObject(t(character_matrix))
+
+character_matrix[character_matrix==-1]=NA
+chr_mat_imputed = impute_characters(character_matrix, nrounds = 20)
+p4_2_sub[['character_imputed']] = CreateAssayObject(t(chr_mat_imputed))
+
+dittoHeatmap(p4_2_sub, genes =rownames(p4_2_sub@assays$character@counts),annot.by = 'clusters',cluster_cols = TRUE,assay = 'character', slot = 'counts',scaled.to.max = T)
+
+dittoHeatmap(p4_2_sub, genes =rownames(p4_2_sub@assays$character@counts),annot.by = 'clusters',cluster_cols = F,assay = 'character', slot = 'counts',scaled.to.max = T)
+
+#dittoHeatmap(p4_2_sub, genes =rownames(p4_2_sub@assays$character@counts),annot.by = 'clusters',cluster_cols = TRUE,assay = 'character_imputed', slot = 'counts',scaled.to.max = T)
+
+
+
+allele_matrix = read.csv("/media/chang/HDD-6/chang/mg/mg_lib_20220324/P4_2/allele_matrix.csv",row.names = 1)
+row.names(allele_matrix) = 1:length(rownames(allele_matrix))
+allele_matrix = allele_matrix[,colnames(p4_2_sub)]
+p4_2_sub[['allele']] = CreateAssayObject(allele_matrix)
+
+dittoHeatmap(p4_2_sub, genes =rownames(p4_2_sub@assays$allele@counts),annot.by = 'clusters',cluster_cols = F,assay = 'allele', slot = 'counts',scaled.to.max = T)
+
+DefaultAssay(p4_2_sub) = "character"
+test = FindMarkers()
+VlnPlot(p4_2_sub, features = rownames(p4_2_sub@assays$character@counts), group.by = 'clusters', slot='counts')
+```
+
+```{r}
+character_matrix = read.csv('/media/chang/HDD-6/chang/mg/mg_lib_20220324/P4_3/char_matrix.csv',row.names = 1)
+p4_3_sub = subset(p4_3, cells=rownames(character_matrix))
+character_matrix = character_matrix[colnames(p4_3_sub),]
+p4_3_sub[['character']] = CreateAssayObject(t(character_matrix))
+
+character_matrix[character_matrix==-1]=NA
+chr_mat_imputed = impute_characters(character_matrix, nrounds = 20)
+p4_3_sub[['character_imputed']] = CreateAssayObject(t(chr_mat_imputed))
+
+dittoHeatmap(p4_3_sub, genes =rownames(p4_3_sub@assays$character@counts),annot.by = 'clusters',cluster_cols = TRUE,assay = 'character', slot = 'counts',scaled.to.max = T)
+
+p2 = dittoHeatmap(p4_3_sub, genes =rownames(p4_3_sub@assays$character@counts),annot.by = 'clusters',cluster_cols = F,assay = 'character', slot = 'counts',scaled.to.max = T)
+
+dittoHeatmap(p4_3_sub, genes =rownames(p4_3_sub@assays$character@counts),annot.by = 'clusters',cluster_cols = TRUE,assay = 'character_imputed', slot = 'counts',scaled.to.max = T)
+
+allele_matrix = read.csv("/media/chang/HDD-6/chang/mg/mg_lib_20220324/P4_3/allele_matrix.csv",row.names = 1)
+row.names(allele_matrix) = 1:length(rownames(allele_matrix))
+allele_matrix = allele_matrix[,colnames(p4_3_sub)]
+p4_3_sub[['allele']] = CreateAssayObject(allele_matrix)
+
+dittoHeatmap(p4_3_sub, genes =rownames(p4_3_sub@assays$allele@counts),annot.by = 'clusters',
+             cluster_cols = F,assay = 'allele', slot = 'counts',scaled.to.max = T)
+```
+
+```{r}
+character_matrix = read.csv('/media/chang/HDD-6/chang/mg/mg_lib_20220324/P31_1/char_matrix.csv',row.names = 1)
+p31_1_sub = subset(p31_1, cells=rownames(character_matrix))
+character_matrix = character_matrix[colnames(p31_1_sub),]
+p31_1_sub[['character']] = CreateAssayObject(t(character_matrix))
+
+character_matrix[character_matrix==-1]=NA
+chr_mat_imputed = impute_characters(character_matrix, nrounds = 20)
+p31_1_sub[['character_imputed']] = CreateAssayObject(t(chr_mat_imputed))
+
+dittoHeatmap(p31_1_sub, genes =rownames(p31_1_sub@assays$character@counts),annot.by = 'clusters',cluster_cols = TRUE,assay = 'character', slot = 'counts',scaled.to.max = T)
+
+p2 = dittoHeatmap(p31_1_sub, genes =rownames(p31_1_sub@assays$character@counts),annot.by = 'clusters',cluster_cols = F,assay = 'character', slot = 'counts',scaled.to.max = T)
+
+dittoHeatmap(p31_1_sub, genes =rownames(p31_1_sub@assays$character@counts),annot.by = 'clusters',cluster_cols = TRUE,assay = 'character_imputed', slot = 'counts',scaled.to.max = T)
+
+allele_matrix = read.csv("/media/chang/HDD-6/chang/mg/mg_lib_20220324/P31_1/allele_matrix.csv",row.names = 1)
+row.names(allele_matrix) = 1:length(rownames(allele_matrix))
+allele_matrix = allele_matrix[,colnames(p31_1_sub)]
+p31_1_sub[['allele']] = CreateAssayObject(allele_matrix)
+
+dittoHeatmap(p31_1_sub, genes =rownames(p31_1_sub@assays$allele@counts),annot.by = 'clusters',
+             cluster_cols = F,assay = 'allele', slot = 'counts',scaled.to.max = T)
+```
+
+```{r}
+mtx = split(cell_allele_table, cell_allele_table$cellBC)
+count = lapply(mtx, function(i){
+  length(unique(i$intBC))
+})
+count = unlist(count)
+p4_sub$intBC_count = count[colnames(p4_sub)]
+
+p4_sub = subset(p4_1, cells=unique(cell_allele_table$cellBC))
+p4_sub = subset(p4_1, idents=c("Glia","GPNMB","MRC1","P2RY12","Unk"))
+
+character_matrix = read.csv('/media/chang/HDD-6/chang/mg/mg_lib_20220324/P4_1/char_matrix.csv',row.names = 1)
+character_matrix[character_matrix==-1]=NA
+character_matrix = character_matrix[intersect(colnames(p4_sub),rownames(character_matrix)),]
+chr_mat_imputed = impute_characters(character_matrix, nrounds = 20)
+tr = phylotime(chr_mat_imputed, t_total = 24)
+#tr = phylotime(character_matrix, t_total = 24)
+
+markers = FindAllMarkers(p4_sub, only.pos = T)
+markers %>%
+    group_by(cluster) %>%
+    top_n(n = 10, wt = avg_log2FC) -> top10
+dittoHeatmap(p4_sub, genes = unique(top10$gene),annot.by = 'clusters',cluster_cols = FALSE,assay = 'SCT')
+dittoHeatmap(p4_sub, genes =rownames(p4_sub@assays$character@counts),annot.by = 'clusters',cluster_cols = TRUE,assay = 'character',
+             slot = 'counts',scaled.to.max = T)
+dittoHeatmap(p4_sub, genes =rownames(p4_sub@assays$allele@counts),annot.by = 'clusters',cluster_cols = FALSE,assay = 'allele',
+             slot = 'counts',scaled.to.max = T)
+FeaturePlot(p4_sub, features = c('r9'), pt.size = 1, order=T,max.cutoff = 'q5') + scale_color_viridis_c()  + DimPlot(p4_sub,label=T, cols=dittoColors())& NoAxes()
+
+
+meta = p4_sub@meta.data[rownames(character_matrix),]
+sc_celltypes = meta$clusters
+names(sc_celltypes) = rownames(meta)
+plot_barcodes(as.matrix(chr_mat_imputed), tr, tip_celltype = sc_celltypes, show_column_names = F,celltype_col = res$col_pal)
+#plot_barcodes(as.matrix(character_matrix), tr, tip_celltype = sc_celltypes, show_column_names = F)
+res = ice_fase(tr, sc_celltypes, total_time = 24, root_time = 0)
+res = set_color_palette(res, palette = dittoColors()[1:length(c(res$gr$node.label, res$gr$tip.label))])
+
+plot_gr(gr = res$gr,
+        total_time = 24,
+        gr_node_time = res$gr_trans_time,
+        type_col = res$col_pal)
+
+plot_tr(res$tr,
+        node_types = res$tr_node_assign,
+        type_col = res$col_pal,
+        end_alpha_terminal = 0.05,
+        edge_width_terminal = 0.02)
+
+plot_ice_times(res)
+plot_node_sizes(res)
+output_estimates(res)
+```
+
+```{r}
+FeaturePlot(p4_2, features = c( 'Mki67','Gli3','Tnf','P2ry12','Gpnmb',"Mrc1","Lyz1",'Il1b','Ptprz1'), pt.size = 1, order=T,max.cutoff = 'q98') & NoAxes() & scale_color_viridis_c()
+test = wilcoxauc(p4_2)
+top_markers(test)
+p4_2$clusters = as.character(p4_2$seurat_clusters)
+```

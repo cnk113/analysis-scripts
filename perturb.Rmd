@@ -1,0 +1,323 @@
+---
+title: "Perturb-seq analysis"
+output: html_notebook
+---
+```{r}
+library(Seurat)
+library(dittoSeq)
+library(SeuratWrappers)
+library(scCustomize)
+library(scMAGeCK)
+library(ggplot2)
+library(ggrepel)
+library(ggplotify)
+library(pheatmap)
+library(patchwork)
+```
+Read in cellxgene matrix and preprocess
+```{r}
+SL268 = Read10X("/media/chang/HDD-1/chang/perturb/SL268_Solo.out/GeneFull_Ex50pAS/em/")
+SL269 = Read10X("/media/chang/HDD-1/chang/perturb/SL269_Solo.out/GeneFull_Ex50pAS/em/")
+SL270 = Read10X("/media/chang/HDD-1/chang/perturb/SL270_Solo.out/GeneFull_Ex50pAS/em/")
+SL271 = Read10X("/media/chang/HDD-1/chang/perturb/SL271_Solo.out/GeneFull_Ex50pAS/em/")
+SL268 = CreateSeuratObject(SL268, project = "SL268")
+SL269 = CreateSeuratObject(SL269, project = "SL269")
+SL270 = CreateSeuratObject(SL270, project = "SL270")
+SL271 = CreateSeuratObject(SL271, project = "SL271")
+SL268 = subset(SL268, subset=nFeature_RNA >= 200)
+SL269 = subset(SL269, subset=nFeature_RNA >= 200)
+SL270 = subset(SL270, subset=nFeature_RNA >= 200)
+SL271 = subset(SL271, subset=nFeature_RNA >= 200)
+```
+Read in guide calls scAR
+```{r}
+crispr_opl33_lane1 = read.csv("/media/chang/HDD-1/chang/perturb/scAR_opl33_lane1.csv",row.names = 1)
+crispr_opl33_lane1 = crispr_opl33_lane1[crispr_opl33_lane1$n_sgRNAs == 1,]
+crispr_opl33_lane1$barcode =  unlist(lapply(strsplit(rownames(crispr_opl33_lane1), split = "-"), function(i) i[[1]]))
+crispr_opl33_lane1$gene =  gsub('\\-1$|\\-2$|\\-3$|\\-4$|\\-5$|\\-6$', '', crispr_opl33_lane1$sgRNAs)
+crispr_opl33_lane1$gene[grepl("non", crispr_opl33_lane1$gene)] <- "non"
+crispr_opl33_lane2 = read.csv("/media/chang/HDD-1/chang/perturb/scAR_opl33_lane2.csv",row.names = 1)
+crispr_opl33_lane2 = crispr_opl33_lane2[crispr_opl33_lane2$n_sgRNAs == 1,]
+crispr_opl33_lane2$barcode =  unlist(lapply(strsplit(rownames(crispr_opl33_lane2), split = "-"), function(i) i[[1]]))
+crispr_opl33_lane2$gene = gsub('\\-1$|\\-2$|\\-3$|\\-4$|\\-5$|\\-6$', '', crispr_opl33_lane2$sgRNAs)
+crispr_opl33_lane2$gene[grepl("non", crispr_opl33_lane2$gene)] <- "non"
+crispr_opl34_lane1 = read.csv("/media/chang/HDD-1/chang/perturb/scAR_opl34_lane1.csv",row.names = 1)
+crispr_opl34_lane1 = crispr_opl34_lane1[crispr_opl34_lane1$n_sgRNAs == 1,]
+crispr_opl34_lane1$barcode =  unlist(lapply(strsplit(rownames(crispr_opl34_lane1), split = "-"), function(i) i[[1]]))
+crispr_opl34_lane1$gene = gsub('\\-1$|\\-2$|\\-3$|\\-4$|\\-5$|\\-6$', '', crispr_opl34_lane1$sgRNAs)
+crispr_opl34_lane1$gene[grepl("non", crispr_opl34_lane1$gene)] <- "non"
+crispr_opl34_lane2 = read.csv("/media/chang/HDD-1/chang/perturb/scAR_opl34_lane2.csv",row.names = 1)
+crispr_opl34_lane2 = crispr_opl34_lane2[crispr_opl34_lane2$n_sgRNAs == 1,]
+crispr_opl34_lane2$barcode =  unlist(lapply(strsplit(rownames(crispr_opl34_lane2), split = "-"), function(i) i[[1]]))
+crispr_opl34_lane2$gene = gsub('\\-1$|\\-2$|\\-3$|\\-4$|\\-5$|\\-6$', '', crispr_opl34_lane2$sgRNAs)
+crispr_opl34_lane2$gene[grepl("non", crispr_opl34_lane2$gene)] <- "non"
+```
+or Geomux
+```{r}
+# crispr_opl33_lane1_geo = read.table("/media/chang/HDD-1/chang/perturb/opl33_lane1/geomux_guide_counts.tsv", sep = '\t', header=TRUE, row.names = 1)
+# crispr_opl33_lane1_geo$barcode =  unlist(lapply(strsplit(rownames(crispr_opl33_lane1_geo), split = "-"), function(i) i[[1]]))
+# crispr_opl33_lane2_geo = read.table("/media/chang/HDD-1/chang/perturb/opl33_lane2/geomux_guide_counts.tsv", sep = '\t', header=TRUE, row.names = 1)
+# crispr_opl33_lane2_geo$barcode =  unlist(lapply(strsplit(rownames(crispr_opl33_lane2_geo), split = "-"), function(i) i[[1]]))
+# crispr_opl34_lane1_geo = read.table("/media/chang/HDD-1/chang/perturb/opl34_lane1/geomux_guide_counts.tsv", sep = '\t', header=TRUE, row.names = 1)
+# crispr_opl34_lane1_geo$barcode =  unlist(lapply(strsplit(rownames(crispr_opl34_lane1_geo), split = "-"), function(i) i[[1]]))
+# crispr_opl34_lane2_geo = read.table("/media/chang/HDD-1/chang/perturb/opl34_lane2/geomux_guide_counts.tsv", sep = '\t', header=TRUE, row.names = 1)
+# crispr_opl34_lane2_geo$barcode =  unlist(lapply(strsplit(rownames(crispr_opl34_lane2_geo), split = "-"), function(i) i[[1]]))
+```
+Comparison
+```{r}
+test = crispr_opl33_lane1[intersect(crispr_opl33_lane1$barcode, crispr_opl33_lane1_geo$barcode),]
+test2 = crispr_opl33_lane1_geo[intersect(crispr_opl33_lane1$barcode, crispr_opl33_lane1_geo$barcode),]
+test2$guide[grepl("non", test2$guide)] = "non"
+test3 = data.frame(test$gene, test2$guide)
+test3 = test3[which(test3$test.gene != test3$test2.guide),]
+```
+SL268 = opl33_lane1
+SL269 = opl33_lane2
+SL270 = opl34_lane1
+SL271 = opl34_lane2
+Merge gRNA + cellxgene
+```{r}
+SL268 = subset(SL268, cells = crispr_opl33_lane1$barcode)
+crispr_opl33_lane1 = crispr_opl33_lane1[rownames(SL268@meta.data),]
+SL269 = subset(SL269, cells = crispr_opl33_lane2$barcode)
+crispr_opl33_lane2 = crispr_opl33_lane2[rownames(SL269@meta.data),]
+SL270 = subset(SL270, cells = crispr_opl34_lane1$barcode)
+crispr_opl34_lane1 = crispr_opl34_lane1[rownames(SL270@meta.data),]
+SL271 = subset(SL271, cells = crispr_opl34_lane2$barcode)
+crispr_opl34_lane2 = crispr_opl34_lane2[rownames(SL271@meta.data),]
+```
+Merge metadata
+```{r}
+SL268@meta.data = cbind(SL268@meta.data, crispr_opl33_lane1)
+SL269@meta.data = cbind(SL269@meta.data, crispr_opl33_lane2)
+SL270@meta.data = cbind(SL270@meta.data, crispr_opl34_lane1)
+SL271@meta.data = cbind(SL271@meta.data, crispr_opl34_lane2)
+```
+Merge
+```{r}
+opl33 = merge(SL268, SL269)
+passed_genes = names(table(opl33$gene)[table(opl33$gene) > 30])
+opl33 = subset(opl33, subset= gene %in% passed_genes)
+rm(SL268)
+rm(SL269)
+opl34 = merge(SL270,SL271)
+passed_genes = names(table(opl34$gene)[table(opl34$gene) > 30])
+opl34 = subset(opl34, subset= gene %in% passed_genes)
+rm(SL270)
+rm(SL271)
+#rm(list=c('SL268','SL269','SL270','SL271','crispr_opl33_lane1','crispr_opl33_lane2','crispr_opl34_lane1',
+          #'crispr_opl34_lane2','opl33_lane1','opl33_lane2','opl34_lane1','opl34_lane2'));gc()
+# opl33[["percent.mt"]] <- PercentageFeatureSet(opl33, pattern = "^MT-")
+# opl34[["percent.mt"]] <- PercentageFeatureSet(opl34, pattern = "^MT-")
+# opl33 = subset(opl33, subset=percent.mt <= 20)
+# opl34 = subset(opl34, subset=percent.mt <= 20)
+```
+Normalize and UMAP
+```{r}
+opl33 = NormalizeData(opl33)
+opl33 = SCTransform(opl33, vst.flavor="v2", n_genes=NULL, ncells=NULL)
+opl33 = RunPCA(opl33)
+opl33 = RunUMAP(opl33, dims=1:30)
+opl33 = FindNeighbors(opl33, dims=1:30)
+opl33 = Runtricycle(object = opl33, slot = "data", reduction.name = "tricycleEmbedding", assay = 'SCT',
+                      reduction.key = "tricycleEmbedding_", gname = NULL, gname.type = "SYMBOL", species = "human")
+opl34 = NormalizeData(opl34)
+opl34 = SCTransform(opl34, vst.flavor="v2", n_genes=NULL, ncells=NULL)
+opl34 = RunPCA(opl34)
+opl34 = RunUMAP(opl34, dims=1:30)
+opl34 = FindNeighbors(opl34, dims=1:30)
+opl34 = Runtricycle(object = opl34, slot = "data", reduction.name = "tricycleEmbedding", assay = 'SCT',
+                       reduction.key = "tricycleEmbedding_", gname = NULL, gname.type = "SYMBOL", species = "human")
+```
+Cluster markers
+```{r}
+markers = FindClusters(opl33, algorithm = 4, resolution = .6)
+markers2 = markers[!grepl("ENSG", markers$gene),]
+markers2 %>%
+    group_by(cluster) %>%
+    top_n(n = 5, wt = avg_log2FC) -> top5
+DoHeatmap(opl33, features = top5$gene, disp.min = 0, disp.max = 3, group.colors = 
+            dittoColors()) + NoLegend() + scale_fill_viridis()
+```
+scmageck
+```{r}
+bc = opl33@meta.data[,c("sgRNAs","gene")]
+bc$cell = rownames(bc)
+colnames(bc) = c("barcode", "gene", "cell")
+bc = bc[,c("cell",'barcode','gene')]
+
+bc2 = opl34@meta.data[,c("sgRNAs","gene")]
+bc2$cell = rownames(bc2)
+colnames(bc2) = c("barcode", "gene", "cell")
+bc2 = bc2[,c("cell",'barcode','gene')]
+
+gc();save.image("/media/chang/HDD-1/chang/perturb/RData")
+
+# Dont run, takes a long time, run with CLI R run
+lr_result <- scmageck_lr(BARCODE=bc, RDS=opl33,SIGNATURE = "/media/chang/HDD-1/chang/perturb/c6.all.v7.5.1.symbols.gmt",
+            NEGCTRL = 'non', PERMUTATION = 10000, SAVEPATH="/media/chang/HDD-1/chang/perturb/opl33_scmageck/"AMBDA=0.01)
+lr_result <- scmageck_lr(BARCODE=bc2, RDS=opl34,SIGNATURE = "/media/chang/HDD-1/chang/perturb/c6.all.v7.5.1.symbols.gmt",
+            NEGCTRL = 'non', PERMUTATION = 10000, SAVEPATH=NUL"/media/chang/HDD-1/chang/perturb/opl34_scmageck/"AMBDA=0.01)
+```
+
+```{r}
+mageck = readRDS("/media/chang/HDD-1/chang/perturb/lr_result_sct.rds")
+mageck.mtx = mageck[[1]][,c(2:ncol(mageck[[1]]))]
+#plot(colMeans(mageck.mtx))
+#plot(rowMeans(mageck.mtx))
+#mageck.mtx2 = mageck.mtx[abs(rowMeans(mageck.mtx))>.02, abs(colMeans(mageck.mtx))>.1]
+#mageck.mtx2 = mageck.mtx2[,!grepl('ENSG',colnames(mageck.mtx2))]
+#pheatmap::pheatmap(mageck.mtx2)
+
+mageck.mtx2 = mageck.mtx
+pval = mageck[[2]][,c(2:ncol(mageck[[1]]))]
+
+for(i in 1:length(colnames(pval))) {
+  mageck.mtx2[i][which(pval[i]>.05),] = 0
+}
+#########################
+plot(colMeans(mageck.mtx2))
+plot(rowMeans(mageck.mtx2))
+# lower row, and higher col for more
+mageck.mtx3 = mageck.mtx2[abs(rowMeans(mageck.mtx2))>.007, abs(colMeans(mageck.mtx2))>.04]
+#mageck.mtx3 = mageck.mtx3[,!grepl('ENSG',colnames(mageck.mtx3))]
+pheatmap::pheatmap(mageck.mtx3)
+
+plot(colSums(mageck.mtx2))
+plot(rowSums(mageck.mtx2))
+mageck.mtx3 = mageck.mtx2[abs(rowSums(mageck.mtx2))>5, abs(colSums(mageck.mtx2))>5]
+#mageck.mtx3 = mageck.mtx3[,!grepl('ENSG',colnames(mageck.mtx3))]
+pheatmap::pheatmap(mageck.mtx3)
+#########################
+test = CreateSeuratObject(t(mageck.mtx2))
+test@assays$RNA@data = test@assays$RNA@counts
+test = FindVariableFeatures(test)
+top1 = head(VariableFeatures(test), 40)
+#plot1 = VariableFeaturePlot(test)
+#plot2 = LabelPoints(plot = plot1, points = top10, repel = TRUE)
+
+test2 = CreateSeuratObject(mageck.mtx2)
+test2@assays$RNA@data = test2@assays$RNA@counts
+test2 = FindVariableFeatures(test2)
+top2 = head(VariableFeatures(test2), 40)
+
+pheatmap::pheatmap(mageck.mtx2[top2,top1])
+
+onc = read.table("/media/chang/HDD-1/chang/perturb/opl33_scmageck/sample1_signature.txt", sep = '\t', header = T)
+onc = onc[order(onc$LR_score, decreasing = T),]
+onc2 = onc[onc$Fdr < .05,]
+p1 = ggplot(onc2, aes(sgrna,LR_score)) + geom_point() + theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=15)) + geom_text_repel(aes(label = gene_signature)) + ggtitle("MDA") 
+
+
+rra_result <- scmageck_rra(BARCODE=bc, RDS=opl33, GENE=c("IFI27", "KRT17", "ID3","ASS1"),
+                           RRAPATH='/home/chang/RRA_0.5.9/bin/RRA', LABEL=NULL, NEGCTRL=NULL, 
+                           KEEPTMP=FALSE, PATHWAY=FALSE, SAVEPATH=NULL)
+```
+
+```{r}
+mageck = readRDS("/media/chang/HDD-1/chang/perturb/lr_result_opl34.rds")
+mageck.mtx = mageck[[1]][,c(2:ncol(mageck[[1]]))]
+#plot(colMeans(mageck.mtx))
+#plot(rowMeans(mageck.mtx))
+#mageck.mtx2 = mageck.mtx[abs(rowMeans(mageck.mtx))>.02, abs(colMeans(mageck.mtx))>.1]
+#mageck.mtx2 = mageck.mtx2[,!grepl('ENSG',colnames(mageck.mtx2))]
+#pheatmap::pheatmap(mageck.mtx2)
+
+mageck.mtx3 = mageck.mtx
+pval = mageck[[2]][,c(2:ncol(mageck[[1]]))]
+
+for(i in 1:length(colnames(pval))) {
+  mageck.mtx3[i][which(pval[i]>.05),] = 0
+}
+#########################
+plot(colMeans(mageck.mtx2))
+plot(rowMeans(mageck.mtx2))
+# lower row, and higher col for more
+mageck.mtx3 = mageck.mtx2[abs(rowMeans(mageck.mtx2))>.007, abs(colMeans(mageck.mtx2))>.04]
+#mageck.mtx3 = mageck.mtx3[,!grepl('ENSG',colnames(mageck.mtx3))]
+pheatmap::pheatmap(mageck.mtx3)
+
+plot(colSums(mageck.mtx2))
+plot(rowSums(mageck.mtx2))
+mageck.mtx3 = mageck.mtx2[abs(rowSums(mageck.mtx2))>5, abs(colSums(mageck.mtx2))>5]
+#mageck.mtx3 = mageck.mtx3[,!grepl('ENSG',colnames(mageck.mtx3))]
+pheatmap::pheatmap(mageck.mtx3)
+#########################
+test = CreateSeuratObject(t(mageck.mtx3))
+test@assays$RNA@data = test@assays$RNA@counts
+test = FindVariableFeatures(test)
+top3 = head(VariableFeatures(test), 300)
+#plot1 = VariableFeaturePlot(test)
+#plot2 = LabelPoints(plot = plot1, points = top10, repel = TRUE)
+
+test2 = CreateSeuratObject(mageck.mtx3)
+test2@assays$RNA@data = test2@assays$RNA@counts
+test2 = FindVariableFeatures(test2)
+top4 = head(VariableFeatures(test2), 300)
+
+
+inter = intersect(top1, top3)
+inter2 = intersect(top2, top4)
+p1 = as.ggplot(pheatmap::pheatmap(mageck.mtx2[inter2,inter], cluster_rows = F, cluster_cols = F))
+p2 = as.ggplot(pheatmap::pheatmap(mageck.mtx3[inter2,inter], cluster_rows = F, cluster_cols = F))
+p1 + p2
+
+
+pheatmap::pheatmap(mageck.mtx2[top2,top1])
+
+onc3 = read.table("/media/chang/HDD-1/chang/perturb/opl34_scmageck/sample1_signature.txt", sep = '\t', header = T)
+onc3 = onc3[order(onc3$LR_score, decreasing = T),]
+onc4 = onc3[onc3$Fdr < .05,]
+p2 = ggplot(onc4, aes(sgrna,LR_score)) + geom_point() + theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=15)) + geom_text_repel(aes(label = gene_signature)) + ggtitle("HCC") 
+```
+
+
+Run sceptre
+```{r}
+gene_pair = unique(data.frame(cbind(bc$gene, bc$barcode)))
+colnames(gene_pair) = c("gene_id", "gRNA_id")
+gene_pair = gene_pair[!grepl("non",gene_pair$gene_id),]
+
+covariate_matrix = data.frame(opl33$nCount_RNA, batch = factor(opl33$orig.ident))
+covariate_matrix$opl33.nCount_RNA = log10(covariate_matrix$opl33.nCount_RNA)
+
+perturb_matrix = matrix(0, length(unique(opl33$sgRNAs)), length(colnames(opl33)))
+rownames(perturb_matrix) = unique(opl33$sgRNAs)
+colnames(perturb_matrix) = colnames(opl33)
+
+for(i in 1:nrow(opl33@meta.data)) {
+    row <- opl33@meta.data[i,]
+    perturb_matrix[row$sgRNAs, rownames(row)] = 1
+}
+
+'''
+perturb_matrix = matrix(0, length(unique(opl33$gene)), length(colnames(opl33)))
+rownames(perturb_matrix) = unique(opl33$gene)
+colnames(perturb_matrix) = colnames(opl33)
+
+for(i in 1:nrow(opl33@meta.data)) {
+    row <- opl33@meta.data[i,]
+    perturb_matrix[row$gene, rownames(row)] = 1
+}
+gene_pair$gRNA_id = gene_pair$gene_id
+gene_pair = unique(gene_pair)
+gene_pair = gene_pair[gene_pair$gene_id %in% rownames(opl33@assays$SCT@counts),]
+'''
+
+result <- run_sceptre_high_moi(gene_matrix = opl33@assays$SCT@counts,
+                               gRNA_matrix = perturb_matrix,
+                               covariate_matrix = covariate_matrix,
+                               gene_gRNA_pairs = gene_pair,
+                               side = "both",
+                               storage_dir = "/media/chang/HDD-1/chang/perturb/sceptre/")
+
+result$gRNA = unlist(lapply(strsplit(result$gRNA_id, split = "-"), function(i) i[[1]]))
+result2 = result[result$gRNA != result$gene_id,]
+result2 = result2[result2$p_value < .05,]
+ggplot(result2, aes(gene_id,z_value)) + geom_point() + theme_bw() + 
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=15))+ geom_text_repel(aes(label = gRNA_id))
+
+```
+

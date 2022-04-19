@@ -1,0 +1,81 @@
+---
+title: "Make STICR matrix"
+output: html_notebook
+---
+```{r}
+library(Seurat)
+library(dittoSeq)
+library(SeuratWrappers)
+library(scCustomize)
+library(ggplot2)
+library(ggrepel)
+library(ggplotify)
+library(DropletUtils)
+```
+
+```{r}
+setwd("/media/chang/HDD-8/chang/cloneseq/RND_STICR_GEO/")
+files <- list.files(pattern = "\\.tsv$")
+bcs = lapply(files, function(i){
+  tmp = read.table(i, header = T, sep='\t')
+  bc_matrix = matrix(0, length(unique(tmp$barcode)), length(unique(tmp$CBC)))
+  rownames(bc_matrix) = unique(tmp$barcode)
+  colnames(bc_matrix) = unique(tmp$CBC)
+  for(i in 1:nrow(tmp)) {
+    row = tmp[i,]
+    bc_matrix[row$barcode, row$CBC] = row$UMI_Count
+  }
+  bc_matrix
+})
+samples = unlist(lapply(strsplit(files, split="\\."), function(i) i[[1]]))
+#names(bcs) = samples
+for(i in 1:length(bcs)){
+  path = paste0(samples[[i]],".h5")
+  print(path)
+  write10xCounts(path = path, bcs[[i]], version = '3',type = "HDF5")
+}
+```
+
+```{r}
+writeSTAR <- function(data.dir, proj = "SeuratObject", ... ) {
+  data.dir = paste0(data.dir, "/", proj, "_Solo.out","/GeneFull_Ex50pAS/raw")
+  mtx <- file.path(data.dir, "UniqueAndMult-EM.mtx")
+  cells <- file.path(data.dir, "barcodes.tsv")
+  features <- file.path(data.dir, "features.tsv")
+  mtx = ReadMtx(mtx = mtx, cells = cells, features = features, ...)
+  write10xCounts(path = paste0(data.dir, "/", proj,".h5"), x=mtx, version='3', type='HDF5')
+}
+```
+
+```{r}
+setwd("/media/chang/HDD-8/chang/cloneseq/fastqs/GW15_rep1")
+dirs = list.dirs(recursive = F)
+dirs = unlist(lapply(strsplit(dirs, split="/"), function(i) i[[2]]))
+lapply(dirs, function(x){
+  writeSTAR(x,x)
+})
+setwd("/media/chang/HDD-8/chang/cloneseq/fastqs/GW15_rep2")
+dirs = list.dirs(recursive = F)
+dirs = unlist(lapply(strsplit(dirs, split="/"), function(i) i[[2]]))
+lapply(dirs, function(x){
+  writeSTAR(x,x)
+})
+setwd("/media/chang/HDD-8/chang/cloneseq/fastqs/GW18_PFC")
+dirs = list.dirs(recursive = F)
+dirs = unlist(lapply(strsplit(dirs, split="/"), function(i) i[[2]]))
+lapply(dirs, function(x){
+  writeSTAR(x,x)
+})
+setwd("/media/chang/HDD-8/chang/cloneseq/fastqs/GW18_V1")
+dirs = list.dirs(recursive = F)
+dirs = unlist(lapply(strsplit(dirs, split="/"), function(i) i[[2]]))
+lapply(dirs, function(x){
+  writeSTAR(x,x)
+})
+writeSTAR("/media/chang/HDD-8/chang/cloneseq/fastqs/GW15_rep3","GW15_rep3")
+writeSTAR("/media/chang/HDD-8/chang/cloneseq/fastqs/GW15_rep4","GW15_rep4")
+writeSTAR("/media/chang/HDD-8/chang/cloneseq/fastqs/GW15_rep5","GW15_rep5")
+writeSTAR("/media/chang/HDD-8/chang/cloneseq/fastqs/GW18_MGE","GW18_MGE")
+
+```
+

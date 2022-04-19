@@ -1,0 +1,230 @@
+---
+title: 'Lab 1: Linear models for quantitative genetics'
+author: "Chang Kim"
+date: 'Due Date: 10/22/2021'
+output:
+  html_document: default
+  pdf_document: default
+subtitle: BMI 206
+---
+<br>
+<br>
+
+Read in the genotype and phenotype matrices. 
+```{r}
+genos = as.matrix(read.table("./genos.txt"))
+phenos = as.matrix(read.table("./phenos.txt"))
+```
+<br>
+
+Make a histogram of the phenotypes. Do they look normally distributed?
+
+```{r}
+hist(phenos)
+```
+<br>
+
+__How are the genotypes encoded?__
+```{r}
+table(genos)
+```
+<br>
+
+__How many individuals are there in the dataset and how many SNPs? (save them in `N` and `M`, respectively)__
+```{r}
+N = 1500
+M = 10000
+```
+
+<br>
+
+__Compute the *minor* allele frequency for every SNP.__
+```{r}
+MAFs = array(0,M)
+for(i in 1:M) {
+      geno = genos[,i]
+      frequency = table(geno)
+      major =  1500 - (frequency[1] + frequency[3])
+      MAFs[i] = (major + 2 * min(frequency[1], frequency[3])) / 3000
+}
+```
+<br>
+
+__Run a GWAS on the data under an additive model and save the p-values, z-scores, and effect sizes.__
+```{r}
+pvalues = array(0,M)
+zscores = array(0,M)
+betas = array(0,M)
+for(i in 1:M) {
+	g = genos[,i]
+	res = lm(phenos ~ g)
+	su = summary(res)
+	zscores[i] = su$coefficients[2,3]
+	pvalues[i] = su$coefficients[2,4]
+	betas[i] = su$coefficients[2,1]
+}
+```
+<br>
+
+Draw a QQ plot for log10(p) values
+```{r}
+obsLogPvs = sort(-log10(pvalues))
+expLogPvs = sort(-log10(seq(1/M,1,1/M)))
+
+plot(expLogPvs,obsLogPvs,main='QQ plot')
+abline( a=0, b=1 )
+```
+<br>
+
+Compute the $\chi^2$ test statistics
+```{r}
+chis = zscores^2
+```
+<br>
+
+__Is there inflation?__
+```{r}
+lambdaGC = median(chis)/0.454 # why .454? It's the 50th percentile with 1 degree of freedom b/c max(MAFs) = .5
+plot(expLogPvs,obsLogPvs,main='QQ plot')
+abline( a=0, b=lambdaGC, col=2 )
+# Not really
+```
+<br>
+
+__Are there any signficantly associated SNPs? If so, which SNPs are they?__
+```{r}
+assoc = which(pvalues<.05)
+```
+<br>
+
+__Build a linear predictor of the phenotype using these associated SNPs.__
+```{r}
+ypred = array(0,1500)
+for(i in 1:1500) {
+      ypred[i] = genos[i,assoc] %*% assoc
+}
+plot(ypred,phenos)
+```
+<br>
+
+__What is the correlation between the predicted phenotype and the true phenotype?__
+```{r}
+cor(ypred,phenos)
+```
+<br>
+
+__Test each of the associated SNPs for non-linearity__
+```{r}
+hp = array(0,length(assoc))
+res1 = list()
+res2 = list()
+for (i in 1:length(assoc)) {
+  g = genos[,assoc[i]]
+  h = g
+  h[h==2]=0
+  #Hint: can use anova(lm(?),lm(?)) or summary(lm(?))
+  lm1 = lm(phenos ~ g)
+  lm2 = lm(phenos ~ g+h)
+  hp[i] <- anova( lm1, lm2 )$Pr[2] 
+  res1[i] <- list(resid(lm1))
+  res2[i] <- list(resid(lm2))
+}
+res1 <- do.call(rbind, res1)
+res2 <- do.call(rbind, res2)
+```
+<br>
+
+__Visualize a linear SNP and a non-linear SNP.__
+```{r}
+par( mfrow=c(1,2) )
+plot( colMeans(res1), phenos)
+#points( c(0,1,2), tapply( , , mean ), col=2, pch=16, cex=3 )
+#lines( c(0,1,2), tapply( , , mean ), col=2, lwd=2  )
+plot( colMeans(res2), phenos)
+#points( c(0,1,2), tapply( , ?, mean ), col=2, pch=16, cex=3 )
+#lines( c(0,1,2), tapply( , ?, mean ), col=2, lwd=2  )
+```
+<br>
+
+### Simulating genotypes with LD
+
+Establishing some important simulation parameters
+```{r}
+N = 1000 #number of individuals
+M = 30   #number of non-causal SNPs
+gs = matrix(0,nrow=N,ncol=M)
+
+MAF = .5
+gC = rbinom(N,1,MAF) #causal variant
+
+MAF = 0.5 #minor allele frequency of all SNPs
+set.seed = (42) #set random seed so we all get the same numbers
+```
+<br>
+
+Generate 10 tight LD partners.
+```{r}
+rho = 0.9
+for(i in 1:10) {
+  idx = rbinom(N,1,rho)
+  gs[,i]=gC*idx+rbinom(N,1,MAF)*(1-idx)
+  # test they have the right LD empirically
+  cat( 'Observed LD = ', cor( gs[,i], gC ), '\n' )
+  # Bonus: prove they have the right LD theoretically
+}
+```
+<br>
+
+__Do the same for 10 moderate LD partners (rho=0.6).__
+```{r}
+rho = 0.6
+for(i in 11:20) {
+  idx = rbinom(N,1,rho)
+  gs[,i]=gC*idx+rbinom(N,1,MAF)*(1-idx)
+  # test they have the right LD empirically
+  cat( 'Observed LD = ', cor( gs[,i], gC ), '\n' )
+  # Bonus: prove they have the right LD theoretically
+}
+```
+<br>
+
+__Do the same for 10 independent SNPs (rho=0).__
+```{r}
+rho = 0
+for(i in 21:30) {
+  idx = rbinom(N,1,rho)
+  gs[,i]=gC*idx+rbinom(N,1,MAF)*(1-idx)
+  # test they have the right LD empirically
+  cat( 'Observed LD = ', cor( gs[,i], gC ), '\n' )
+  # Bonus: prove they have the right LD theoretically
+}
+```
+
+Calculate Z-scores
+```{r}
+beta = 0.3
+pheno = gC*beta + rnorm(N)
+zsC = summary(lm(pheno~gC))$coef[2,3]
+zs = sapply( 1:M, function(i) summary(lm(pheno~gs[,i]))$coef[2,3] )
+```
+<br>
+
+__Visualize the relationship between the mean z-scores at the tag SNPs and the z-score at the causal SNP__
+```{r}
+par( mfrow=c(2,2) )
+breaks = hist(c(0,zsC,zs),plot=F)$breaks
+hist(zs[1:10],breaks=breaks, col=1, main='LD partners')
+abline(v=.9)
+hist(zs[11:20],breaks=breaks, col=2, main='Low-LD partner SNPs')
+abline(v=.6)
+hist(zs[21:30],breaks=breaks, col=3, main='Independent SNPs')
+abline(v=0)
+```
+<br>
+
+__What is the empirical LD between all pairs of SNPs including the causal SNP?__
+```{r}
+lds = cor(cbind(gs,gC))
+corrplot::corrplot(lds)
+```
+<br>

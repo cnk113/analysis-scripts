@@ -1,0 +1,140 @@
+---
+title: "Vasc"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+library(Seurat)
+library(dittoSeq)
+library(harmony)
+library(SeuratWrappers)
+library(scCustomize)
+library(scds)
+library(Scissor)
+library(presto)
+```
+
+```{r}
+# data.dir should be Solo.out dir
+ReadSTAR <- function(data.dir, proj = "SeuratObject", feats = 1000) {
+  # test dir /media/chang/HDD-1/chang/fastqs/ctrl/ctrl085_L_Solo.out/
+  data.dir.genefull = paste0(data.dir, "/GeneFull_Ex50pAS/raw")
+  mtx = file.path(data.dir.genefull, "UniqueAndMult-EM.mtx")
+  cells = file.path(data.dir.genefull, "barcodes.tsv")
+  features = file.path(data.dir.genefull, "features.tsv")
+  seurat = as.Seurat(cxds_bcds_hybrid(as.SingleCellExperiment
+                                      (CreateSeuratObject(ReadMtx
+                                      (mtx = mtx, cells = cells, 
+                                      features = features), 
+                                      project = proj, min.features = feats))))
+  data.dir.velo = paste0(data.dir, "/Velocyto/raw")
+  cells = file.path(data.dir.velo, "barcodes.tsv")
+  features = file.path(data.dir.velo, "features.tsv")
+  spliced = file.path(data.dir.velo, "spliced.mtx")
+  unspliced = file.path(data.dir.velo, "unspliced.mtx")
+  ambi = file.path(data.dir.velo, "ambiguous.mtx")
+  spliced = ReadMtx(mtx = spliced, cells = cells, features = features)
+  unspliced = ReadMtx(mtx = unspliced, cells = cells, features = features)
+  ambi = ReadMtx(mtx = ambi, cells = cells, features = features)
+  spliced = spliced + ambi
+  spliced = spliced[,colnames(seurat)]
+  unspliced = unspliced[,colnames(seurat)]
+  seurat[['spliced']] = CreateAssayObject(spliced)
+  seurat[['unspliced']] == CreateAssayObject(unspliced)
+  return(seurat)
+}
+
+cxds_bcds_hybrid_seurat_batch <- function(obj, batch = "orig.ident", ... ) {
+  sub = SplitObject(obj, split.by = batch)
+  sub = lapply(sub, function(x){
+    x = as.SingleCellExperiment(x)
+    x = cxds_bcds_hybrid(x)
+    as.Seurat(x)
+  })
+  return(merge(sub[[1]], sub[2:length(sub)]))
+}  
+
+cxds_bcds_hybrid_seurat <- function(obj, ... ) {
+  return(as.Seurat(cxds_bcds_hybrid(as.SingleCellExperiment(obj))))
+}  
+```
+
+```{r}
+dir = "/media/chang/HDD-1/chang/fastqs/aneu_bulk/"
+files = list.files(path = dir ,pattern = "\\Gene.out.tab$")
+samples = unlist(lapply(strsplit(files, split="_"), function(i) i[[1]]))
+mtx = lapply(files, function(i){
+  tmp = read.table(paste0(dir, i), sep = '\t', header = FALSE,row.names = 1)
+  tmp = tmp[5:dim(tmp)[1],]
+  tmp2 = tmp$V2 # Unstranded
+  names(tmp2) = rownames(tmp)
+  tmp2
+})
+names(mtx) = samples
+mtx = do.call(cbind, mtx)
+meta = read.table(paste0(dir,"meta.txt"), sep='\t',header=T)
+meta$pheno = 0
+meta$pheno[meta$Condition == "R"] = 1
+mtx = mtx[,meta$Sample]
+
+gtf  = rtracklayer::import('/media/chang/HDD-1/reference_cellranger/gencode.v39.primary_assembly.annotation.gtf.filtered.gtf')
+gtf_df = as.data.frame(gtf)
+genes = unique(gtf_df[ ,c("gene_id","gene_name")])
+rownames(genes) = genes$gene_id
+genes = genes[rownames(mtx),]
+rownames(mtx) = genes$gene_name
+```
+
+
+```{r}
+ctrl085_L = ReadSTAR("/media/chang/HDD-1/chang/fastqs/ctrl/ctrl085_L_Solo.out/", "ctrl085_L")
+ctrl085_S = ReadSTAR("/media/chang/HDD-1/chang/fastqs/ctrl/ctrl085_S_Solo.out/", "ctrl085_S")
+ctrl086_1 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/ctrl/ctrl086_1_Solo.out/", "ctrl086_1")
+ctrl086_2 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/ctrl/ctrl086_2_Solo.out/", "ctrl086_2")
+ctrl099_21 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/ctrl/ctrl099_21_Solo.out/", "ctrl099_21")
+ctrl099_22 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/ctrl/ctrl099_22_Solo.out/", "ctrl099_22")
+ctrl12 = ReadSTAR("/media/chang/HDD-7/chang/122120_czb/AVM_Paper/EW_Peri_Ctr/reads/ctrl12_Solo.out/", "ctrl12")
+#cav = ReadSTAR("/media/chang/HDD-7/chang/122120_czb/Cav_Paper/Cav_Solo.out/", "cav")
+a1211 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/aneu/a1211_Solo.out/", "a1211", 500)
+a1217 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/aneu/a1217_Solo.out/", "a1217", 500)
+a219 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/aneu/a219_Solo.out/", "a219", 500)
+```
+
+```{r}
+save.image("/media/chang/HDD-1/chang/fastqs/solo.RData")
+load("/media/chang/HDD-1/chang/fastqs/solo.RData")
+```
+
+
+```{r}
+merged = merge(ctrl085_L, c(ctrl085_S, ctrl086_1, ctrl086_2, ctrl099_21, ctrl099_22, ctrl12, a1211, a1217, a219))
+merged = cxds_bcds_hybrid_seurat_batch(merged)
+merged[['percent.mt']] = PercentageFeatureSet(merged, pattern = "MT-",assay = 'RNA')
+merged = subset(merged, subset=hybrid_score < 1 & percent.mt < 30)
+merged$Condition = "CTRL"
+merged$Condition[grepl("a", merged$orig.ident)] = "Aneu"
+merged$Sample = merged$orig.ident
+merged$Sample[grepl('ctrl085', merged$orig.ident)] = "ctrl085"
+merged$Sample[grepl('ctrl086', merged$orig.ident)] = "ctrl086"
+```
+
+```{r}
+merged = SCTransform(merged, vst.flavor='v2', n_genes=NULL, ncells=NULL)
+merged = RunPCA(merged)
+merged = RunHarmony(merged, group.by.vars = c("Sample",'Condition'), plot_convergence = T, assay.use = "SCT")
+merged = RunUMAP(merged, dims=1:50, reduction='harmony')
+merged = FindNeighbors(merged, dims=1:50, reduction = 'harmony')
+merged = FindClusters(merged, resolution = .2)
+```
+
+```{r}
+test = wilcoxauc(merged)
+```
+
+```{r}
+merged@graphs$RNA_snn = merged@graphs$integrated_snn
+merged@assays$RNA@data = merged@assays$SCT@data
+infos1 = Scissor(mtx, merged, meta$pheno, alpha = 0.05, 
+                 family = "binomial", Save_file = '/media/chang/HDD-1/chang/fastqs/Scissor.RData')
+```
+

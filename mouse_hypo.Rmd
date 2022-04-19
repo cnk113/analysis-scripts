@@ -1,0 +1,69 @@
+---
+title: "Mouse_hypo"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+library(Seurat)
+library(dittoSeq)
+library(harmony)
+library(SeuratWrappers)
+library(scCustomize)
+library(scds)
+library(presto)
+```
+
+```{r}
+# data.dir should be Solo.out dir
+ReadSTAR <- function(data.dir, proj = "SeuratObject", feats = 1000, ... ) {
+  data.dir = paste0(data.dir, "/GeneFull_Ex50pAS/raw")
+  mtx <- file.path(data.dir, "UniqueAndMult-EM.mtx")
+  cells <- file.path(data.dir, "barcodes.tsv")
+  features <- file.path(data.dir, "features.tsv")
+  return(CreateSeuratObject(ReadMtx(mtx = mtx, cells = cells, features = features, ...), 
+         project = proj, min.features = feats))
+}
+# Object with batch metadata set
+cxds_bcds_hybrid_seurat_batch <- function(obj, batch = "orig.ident", ... ) {
+  sub = SplitObject(obj, split.by = batch)
+  sub = lapply(sub, function(x){
+    x = as.SingleCellExperiment(x)
+    x = cxds_bcds_hybrid(x)
+    as.Seurat(x)
+  })
+  return(merge(sub[[1]], sub[2:length(sub)]))
+}  
+# Single seurat object
+cxds_bcds_hybrid_seurat <- function(obj, ... ) {
+  return(as.Seurat(cxds_bcds_hybrid(as.SingleCellExperiment(obj))))
+}  
+```
+
+```{r}
+fv2 = ReadSTAR("/media/chang/HDD-11/chang/mouse_stephan/hypo/Female1_v2_Solo.out/"c proj = rFemale1_v2ctrfv3 = ReadSTAR("/media/chang/HDD-11/chang/mouse_stephan/hypo/Female2_v3_Solo.out/", proj = "Female2_v3")
+mv2 = ReadSTAR("/media/chang/HDD-11/chang/mouse_stephan/hypo/Male1_v2_Solo.out/", proj = "Male1_v2")
+mv3 = ReadSTAR("/media/chang/HDD-11/chang/mouse_stephan/hypo/Male2_v3_Solo.out/", proj = "Male2_v3")v
+
+```{r}
+merged = merge(ctrfv2(ctrfv3trmv2trmv3merged = $Sex = "F"
+merged$Sex[grepl("Male", merged$orig.ident)] = "M"
+merged$Chemistry = "v2"
+merged$Chemistry[grepl("v3", merged$orig.ident)] = "v3"
+mergedcxds_bcds_hybrid_seurat_batch(merged)
+mer#ged = subset(merged, subset=hybrid_score < 1)
+mer
+
+```{r}
+merged = SCTransform(merged, vst.flavor='v2', n_genes=NULL, ncells=NULL)
+merged = RunPCA(merged)
+merged = RunHarmony(merged, group.by.vars = c("Chemistry"),plot_convergence = T, assay.use = "SCT")
+merged = RunUMAP(merged, dims=1:50,50, reduction='harmony')
+merged = FindNeighbors(merged, dims=1:50, reduction='harmony'erged = FindClusters(merged, resolution = .2)
+1)
+save.image("/media/chang/HDD-11/chang/mouse_stephan/hypo/RData")
+```
+
+```{r}
+test = wilcoxauc(merged)
+```
+
