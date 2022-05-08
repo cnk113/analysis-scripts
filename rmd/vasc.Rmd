@@ -12,11 +12,23 @@ library(scCustomize)
 library(scds)
 library(Scissor)
 library(presto)
+library(WGCNA)
+library(scWGCNA)
+library(MAGMA.Celltyping)
+library(EWCE)
+library(MungeSumstats)
+library(cowplot)
+library(patchwork)
+library(tidyverse)
+library(UCell)
+library(MetBrewer)
+library(igraph)
+library(enrichR)
 ```
 
 ```{r}
 # data.dir should be Solo.out dir
-ReadSTAR <- function(data.dir, proj = "SeuratObject", feats = 1000) {
+ReadSTAR <- function(data.dir, proj = "SeuratObject", feats = 1000, cutoff=1) {
   # test dir /media/chang/HDD-1/chang/fastqs/ctrl/ctrl085_L_Solo.out/
   data.dir.genefull = paste0(data.dir, "/GeneFull_Ex50pAS/raw")
   mtx = file.path(data.dir.genefull, "UniqueAndMult-EM.mtx")
@@ -40,10 +52,13 @@ ReadSTAR <- function(data.dir, proj = "SeuratObject", feats = 1000) {
   spliced = spliced[,colnames(seurat)]
   unspliced = unspliced[,colnames(seurat)]
   seurat[['spliced']] = CreateAssayObject(spliced)
-  seurat[['unspliced']] == CreateAssayObject(unspliced)
+  seurat[['unspliced']] = CreateAssayObject(unspliced)
+  seurat[['percent.mt']] = PercentageFeatureSet(seurat, pattern = "MT-",assay = 'RNA')
+  seurat = subset(seurat, subset=hybrid_score < cutoff & percent.mt < 30)
   return(seurat)
 }
 
+'''
 cxds_bcds_hybrid_seurat_batch <- function(obj, batch = "orig.ident", ... ) {
   sub = SplitObject(obj, split.by = batch)
   sub = lapply(sub, function(x){
@@ -56,7 +71,8 @@ cxds_bcds_hybrid_seurat_batch <- function(obj, batch = "orig.ident", ... ) {
 
 cxds_bcds_hybrid_seurat <- function(obj, ... ) {
   return(as.Seurat(cxds_bcds_hybrid(as.SingleCellExperiment(obj))))
-}  
+} 
+'''
 ```
 
 ```{r}
@@ -85,32 +101,42 @@ genes = genes[rownames(mtx),]
 rownames(mtx) = genes$gene_name
 ```
 
+```{r}
+genome_ref_path = get_genome_ref(
+  storage_dir = "/media/chang/HDD-1/chang/fastqs/aneu/aneu_gwas/",
+  method = c("magma"), population = c("eur", "afr", "amr", "eas", "sas"))
+
+path_formatted = format_sumstats(path="/media/chang/HDD-1/chang/fastqs/aneu/aneu_gwas/",
+                                                 save_path = tempfile(fileext = ".formatted.tsv.gz"),
+                                                 ref_genome ="GRCh37")
+
+genesOutPath = map_snps_to_genes(path_formatted = path_formatted,
+                                                    genome_build = "GRCh37",
+                                                    genome_ref_path = genome_ref_path)
+```
 
 ```{r}
-ctrl085_L = ReadSTAR("/media/chang/HDD-1/chang/fastqs/ctrl/ctrl085_L_Solo.out/", "ctrl085_L")
-ctrl085_S = ReadSTAR("/media/chang/HDD-1/chang/fastqs/ctrl/ctrl085_S_Solo.out/", "ctrl085_S")
+ctrl085_L = ReadSTAR("/media/chang/HDD-1/chang/fastqs/ctrl/ctrl085_L_Solo.out/", "ctrl085_L",cutoff = 1.5)
+ctrl085_S = ReadSTAR("/media/chang/HDD-1/chang/fastqs/ctrl/ctrl085_S_Solo.out/", "ctrl085_S",cutoff = 2)
 ctrl086_1 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/ctrl/ctrl086_1_Solo.out/", "ctrl086_1")
-ctrl086_2 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/ctrl/ctrl086_2_Solo.out/", "ctrl086_2")
+ctrl086_2 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/ctrl/ctrl086_2_Solo.out/", "ctrl086_2", cutoff = 1.5)
 ctrl099_21 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/ctrl/ctrl099_21_Solo.out/", "ctrl099_21")
 ctrl099_22 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/ctrl/ctrl099_22_Solo.out/", "ctrl099_22")
-ctrl12 = ReadSTAR("/media/chang/HDD-7/chang/122120_czb/AVM_Paper/EW_Peri_Ctr/reads/ctrl12_Solo.out/", "ctrl12")
-#cav = ReadSTAR("/media/chang/HDD-7/chang/122120_czb/Cav_Paper/Cav_Solo.out/", "cav")
+ctrl12 = ReadSTAR("/media/chang/HDD-7/chang/122120_czb/AVM_Paper/EW_Peri_Ctr/reads/ctrl12_Solo.out/", "ctrl12", cutoff=2)
 a1211 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/aneu/a1211_Solo.out/", "a1211", 500)
 a1217 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/aneu/a1217_Solo.out/", "a1217", 500)
-a219 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/aneu/a219_Solo.out/", "a219", 500)
+a219 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/aneu/a219_Solo.out/", "a219", 500, cutoff=2)
+#cav = ReadSTAR("/media/chang/HDD-7/chang/122120_czb/Cav_Paper/Cav_Solo.out/", "cav")
 ```
 
 ```{r}
-save.image("/media/chang/HDD-1/chang/fastqs/solo.RData")
-load("/media/chang/HDD-1/chang/fastqs/solo.RData")
+#save.image("/media/chang/HDD-1/chang/fastqs/aneu/solo.RData")
+#load("/media/chang/HDD-1/chang/fastqs/aneu/solo.RData")
 ```
-
 
 ```{r}
 merged = merge(ctrl085_L, c(ctrl085_S, ctrl086_1, ctrl086_2, ctrl099_21, ctrl099_22, ctrl12, a1211, a1217, a219))
-merged = cxds_bcds_hybrid_seurat_batch(merged)
-merged[['percent.mt']] = PercentageFeatureSet(merged, pattern = "MT-",assay = 'RNA')
-merged = subset(merged, subset=hybrid_score < 1 & percent.mt < 30)
+merged$hybrid_score[is.na(merged$hybrid_score)] = 0
 merged$Condition = "CTRL"
 merged$Condition[grepl("a", merged$orig.ident)] = "Aneu"
 merged$Sample = merged$orig.ident
@@ -124,17 +150,281 @@ merged = RunPCA(merged)
 merged = RunHarmony(merged, group.by.vars = c("Sample",'Condition'), plot_convergence = T, assay.use = "SCT")
 merged = RunUMAP(merged, dims=1:50, reduction='harmony')
 merged = FindNeighbors(merged, dims=1:50, reduction = 'harmony')
-merged = FindClusters(merged, resolution = .2)
+
+merged = FindClusters(merged, resolution = .1)
+
+merged_subset = subset(merged, idents=c(0,3,4,5))
+merged_subset = RunUMAP(merged_subset, dims=1:50, reduction='harmony')
+merged_subset = FindNeighbors(merged_subset, dims=1:50, reduction = 'harmony')
+
+merged_subset = FindClusters(merged_subset, resolution = .4)
+
+DimPlot(merged_subset, cols=dittoColors(), label=T, group.by='SCT_snn_res.0.4') + NoAxes()
+DimPlot(merged_subset, cols=dittoColors(), label=F, group.by='Condition') + NoAxes()
+
+FeaturePlot(merged_subset, features = 'hybrid_score', order=T,max.cutoff = 'q100')
+
+FeaturePlot(merged_subset, features = c("HIGD1B","DCN","LUM","KCNT2","CNN1","KCNJ8","ACTA2","RGS5","CLDN5"),max.cutoff = 'q99',ncol = 3, order=T) & NoAxes() & scale_color_viridis_c()
+
+merged_subset$clusters = as.character(merged_subset$SCT_snn_res.0.4)
+merged_subset$clusters[merged_subset$clusters == 0] = "SMC"
+merged_subset$clusters[merged_subset$clusters == 1] = "SMC"
+merged_subset$clusters[merged_subset$clusters == 2] = "SMC"
+merged_subset$clusters[merged_subset$clusters == 13] = "PC"
+merged_subset$clusters[merged_subset$clusters == 12] = "PC"
+merged_subset$clusters[merged_subset$clusters == 10] = "Venous"
+merged_subset$clusters[merged_subset$clusters == 7] = "Artery"
+merged_subset$clusters[merged_subset$clusters == 8] = "Venule"
+merged_subset$clusters[merged_subset$clusters == 5] = "FBMC"
+merged_subset$clusters[merged_subset$clusters == 4] = "FB"
+merged_subset$clusters[merged_subset$clusters == 3] = "vSMC"
+merged_subset$clusters[merged_subset$clusters == 6] = "Aneu"
+merged_subset$clusters[merged_subset$clusters == 9] = "ExVivo"
+merged_subset$clusters[merged_subset$clusters == 11] = "Aneu"
+
+test = wilcoxauc(merged_subset, group_by = "clusters",seurat_assay = 'SCT')
+dittoBarPlot(merged_subset, var='Condition', group.by = 'clusters')
 ```
 
 ```{r}
-test = wilcoxauc(merged)
+merged_subset2 = merged_subset
+merged_subset2 = RunPCA(merged_subset2)
+merged_subset2 = RunHarmony(merged_subset2, group.by.vars = c("Sample",'Condition'),
+                            plot_convergence = T, assay.use = "SCT")
+merged_subset2 = RunUMAP(merged_subset2, dims=1:50, reduction='harmony')
+merged_subset2 = FindNeighbors(merged_subset2, dims=1:50, reduction = 'harmony')
+DimPlot(merged_subset2, cols=dittoColors(), label=F, group.by='Condition') + NoAxes()
+
+```
+
+```{r}
+merged_ctrl = subset(merged, subset=Condition == "CTRL")
+#merged_ctrl = SCTransform(merged_ctrl, vst.flavor='v2', n_genes=NULL, ncells=NULL)
+#merged_ctrl = RunPCA(merged_ctrl)
+
+merged_aneu = subset(merged, subset=Condition == "Aneu")
+
+VariableFeaturePlot_scCustom(merged_subset, num_features = 20, repel = TRUE,
+    y_axis_log = TRUE, assay = 'SCT')
+
+
+merged_subset_wgcna = merged_subset
+
+merged_subset_wgcna = SetupForWGCNA(
+  merged_subset_wgcna,
+  gene_select = "fraction", # the gene selection approach
+  fraction = 0.01, # fraction of cells that a gene needs to be expressed in order to be included
+  wgcna_name = "Vasc" # the name of the scWGCNA experiment
+)
+
+merged_subset_wgcna <- MetacellsByGroups(
+  seurat_obj = merged_subset_wgcna,
+  group.by = c("clusters", "Sample"), # specify the columns in seurat_obj@meta.data to group by
+  k = 20, # nearest-neighbors parameter
+  ident.group = 'clusters' # set the Idents of the metacell seurat object
+)
+
+# normalize metacell expression matrix:
+merged_subset_wgcna <- NormalizeMetacells(merged_subset_wgcna)
+
+merged_subset_wgcna <- SetDatExpr(
+  merged_subset_wgcna,
+  group_name = unique(merged_subset_wgcna$clusters),
+  group.by='clusters' # the metadata column containing the cell type info. This same column should have also been used in MetacellsByGroups
+)
+
+merged_subset_wgcna = TestSoftPowers(
+  merged_subset_wgcna,
+  setDatExpr = FALSE, # set this to FALSE since we did this above
+)
+
+plot_list <- PlotSoftPowers(merged_subset_wgcna)
+
+wrap_plots(plot_list, ncol=2)
+
+power_table <- GetPowerTable(merged_subset_wgcna)
+head(power_table)
+
+merged_subset_wgcna <- ConstructNetwork(
+  merged_subset_wgcna, soft_power=6,
+  setDatExpr=FALSE
+)
+
+PlotDendrogram(merged_subset_wgcna, main='scWGCNA Dendrogram')
+
+# expression matrix for all the WGCNA genes:
+merged_subset_wgcna <- ScaleData(
+ merged_subset_wgcna,
+ features = GetWGCNAGenes(merged_subset_wgcna)
+)
+
+merged_subset_wgcna <- GetResidual(
+ merged_subset_wgcna,
+ features = GetWGCNAGenes(merged_subset_wgcna)
+)
+
+# compute all MEs in the full single-cell dataset
+merged_subset_wgcna <- ModuleEigengenes(
+ merged_subset_wgcna,
+ group.by.vars=c("Sample","Condition")
+)
+
+hMEs <- GetMEs(merged_subset_wgcna,harmonized = TRUE)
+
+merged_subset_wgcna <- ModuleConnectivity(merged_subset_wgcna)
+
+merged_subset_wgcna <- ResetModuleNames(
+  merged_subset_wgcna,
+  new_name = "Aneu"
+)
+
+modules <- GetModules(merged_subset_wgcna)
+
+merged_subset_wgcna <- ModuleExprScore(
+  merged_subset_wgcna,
+  n_genes = 25,
+  method='UCell'
+)
+
+plot_list <- ModuleFeaturePlot(
+  merged_subset_wgcna,
+  features='hMEs', # plot the hMEs
+  order=TRUE # order so the points with highest hMEs are on top
+)
+
+# stitch together with patchwork
+wrap_plots(plot_list, ncol=5)
+
+ModuleCorrelogram(merged_subset_wgcna)
+
+GGally::ggpairs(GetMEs(merged_subset_wgcna))
+
+# add hMEs to Seurat meta-data:
+merged_subset_wgcna@meta.data <- cbind(
+  merged_subset_wgcna@meta.data,
+  GetMEs(merged_subset_wgcna, harmonized=TRUE)
+)
+selected_mods <- paste0('Aneu', c(1:10))
+VlnPlot(
+  merged_subset_wgcna,
+  features = selected_mods,
+  group.by = 'clusters',
+  pt.size = 0 # don't show actual data points
+)
+
+theme_set(theme_cowplot())
+
+ModuleNetworkPlot(merged_subset_wgcna)
+
+HubGeneNetworkPlot(
+  merged_subset_wgcna,
+  n_hubs = 3, n_other=5,
+  edge_prop = 0.75,
+  mods = 'all'
+)
+
+merged_subset_wgcna <- RunModuleUMAP(
+  merged_subset_wgcna,
+  n_hubs = 10, # number of hub genes to include for the UMAP embedding
+  n_neighbors=15, # neighbors parameter for UMAP
+  min_dist=0.1 # min distance between points in UMAP space
+)
+
+umap_df <- GetModuleUMAP(merged_subset_wgcna)
+ggplot(umap_df, aes(x=UMAP1, y=UMAP2)) +
+  geom_point(
+   color=umap_df$color, # color each point by WGCNA module
+   size=umap_df$kME*2 # size of each point based on intramodular connectivity
+  ) + umap_theme()
+
+p1 = ModuleUMAPPlot(
+  merged_subset_wgcna,
+  edge.alpha=0.15,
+  sample_edges=TRUE,
+  edge_prop=0.2, # proportion of edges to sample (20% here)
+  label_hubs=4 # how many hub genes to plot per module?
+)
+
+
+merged_subset_wgcna$Condition <- as.factor(merged_subset_wgcna$Condition)
+cur_traits <- c('hybrid_score', 'nCount_RNA', 'nFeature_RNA', 'percent.mt', 'Condition')
+merged_subset_wgcna <- ModuleTraitCorrelation(
+  merged_subset_wgcna,
+  traits = cur_traits,
+  group.by='clusters'
+)
+mt_cor <- GetModuleTraitCorrelation(merged_subset_wgcna)
+PlotModuleTraitCorrelation(
+  merged_subset_wgcna,
+  label = 'fdr',
+  label_symbol = 'stars',
+  text_size = 2,
+  text_digits = 2,
+  text_color = 'white',
+  high_color = 'yellow',
+  mid_color = 'black',
+  low_color = 'purple',
+  plot_max = 0.2,
+  combine=TRUE
+)
+
+dbs <- c('GO_Biological_Process_2021','GO_Cellular_Component_2021','GO_Molecular_Function_2021')
+merged_subset_wgcna <- RunEnrichr(
+  merged_subset_wgcna,
+  dbs=dbs, # character vector of enrichr databases to test
+  max_genes = 100 # number of genes per module to test
+)
+
+# retrieve the output table
+enrich_df <- GetEnrichrTable(merged_subset_wgcna)
+
+EnrichrDotPlot(
+  merged_subset_wgcna,
+  mods = "all", # use all modules (this is the default behavior)
+  database = "GO_Biological_Process_2021", # this has to be one of the lists we used above!!!
+  n_terms=1 # number of terms for each module
+)
+```
+
+```{r}
+gwas_genes = c('SLC22A5','SLC22A4','P4HA2','SOX17','NT5C2','MARCKSL1P1',
+                'FGD6','NR2C1','PSMA4','BCAR1','RP11.252K23.2')
+
+FeaturePlot(merged_subset, features = gwas_genes,max.cutoff = 'q99',ncol = 3, order=T) & NoAxes() & scale_color_viridis_c()
+
+DimPlot_scCustom(merged_subset, split.by = "Condition", num_columns = 2, 
+                 repel = TRUE, split_seurat = TRUE,group.by = 'clusters', 
+                 colors_use=met.brewer(name = 'VanGogh1',type="continuous",n=10)) & NoAxes()
+
+DimPlot_scCustom(merged_subset, split.by = "Condition", num_columns = 2, label = T,
+                 repel = TRUE, split_seurat = TRUE,group.by = 'clusters', 
+                 colors_use=dittoColors()) & NoAxes()
+
+
+Stacked_VlnPlot(merged_subset, features = gwas_genes, x_lab_rotate = TRUE,
+    colors_use = dittoColors(), split.by = "Condition", group.by = 'clusters') 
+
+
+
+```
+
+```{r}
+test = wilcoxauc(merged_subset, group_by = "clusters",seurat_assay = 'SCT')
+test = FindMarkers(merged_subset, ident.1 = "Aneu", group.by = "clusters", only.pos = T, assay = "RNA")
+test2 = FindMarkers(merged_subset, ident.1 = "Aneu", ident.2 = 'FB',
+                    group.by = "clusters", only.pos = T, assay = "RNA")
+head(test[order(test$avg_log2FC, decreasing = T),],20)
+head(test2[order(test2$avg_log2FC, decreasing = T),],20)
+
+
+Stacked_VlnPlot(merged_subset, features = gwas_genes, x_lab_rotate = TRUE,
+    colors_use = dittoColors(), split.by = "Condition", group.by = 'clusters') 
 ```
 
 ```{r}
 merged@graphs$RNA_snn = merged@graphs$integrated_snn
 merged@assays$RNA@data = merged@assays$SCT@data
 infos1 = Scissor(mtx, merged, meta$pheno, alpha = 0.05, 
-                 family = "binomial", Save_file = '/media/chang/HDD-1/chang/fastqs/Scissor.RData')
+                 family = "binomial", Save_file = '/media/chang/HDD-1/chang/fastqs/aneu/Scissor.RData')
 ```
 
