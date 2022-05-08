@@ -1,0 +1,251 @@
+---
+title: "GBM MG"
+output: html_notebook
+---
+
+```{r}
+library(Signac)
+library(Seurat)
+library(viridis)
+library(EnsDb.Hsapiens.v86)
+
+annotations <- GetGRangesFromEnsDb(ensdb = EnsDb.Hsapiens.v86)
+seqlevelsStyle(annotations) <- 'UCSC'
+```
+
+```{r}
+front <- Read10X_h5(filename = "/media/chang/HDD-10/derek/run_folders/cellranger_mkdfastq_outs/H5YGGDRX2/Front_cr/outs/filtered_peak_bc_matrix.h5")
+front_metadata <- read.csv(
+  file = "/media/chang/HDD-10/derek/run_folders/cellranger_mkdfastq_outs/H5YGGDRX2/Front_cr/outs/singlecell.csv",
+  header = TRUE,
+  row.names = 1
+)
+front_assay <- CreateChromatinAssay(
+  counts = front,
+  sep = c(":", "-"),
+  genome = 'hg38',
+  annotation = annotations,
+  fragments = '/media/chang/HDD-10/derek/run_folders/cellranger_mkdfastq_outs/H5YGGDRX2/Front_cr/outs/fragments.tsv.gz',
+  min.cells = 10,
+  min.features = 200
+)
+front <- CreateSeuratObject(
+  counts = front_assay,
+  assay = 'peaks',
+  meta.data = front_metadata
+)
+
+
+lateral <- Read10X_h5(filename = "/media/chang/HDD-10/derek/run_folders/cellranger_mkdfastq_outs/H5YGGDRX2/Lateral_cr/outs/filtered_peak_bc_matrix.h5")
+lateral_metadata <- read.csv(
+  file = "/media/chang/HDD-10/derek/run_folders/cellranger_mkdfastq_outs/H5YGGDRX2/Lateral_cr/outs/singlecell.csv",
+  header = TRUE,
+  row.names = 1
+)
+lateral_assay <- CreateChromatinAssay(
+  counts = lateral,
+  sep = c(":", "-"),
+  genome = 'hg38',
+  annotation = annotations,
+  fragments = '/media/chang/HDD-10/derek/run_folders/cellranger_mkdfastq_outs/H5YGGDRX2/Lateral_cr/outs/fragments.tsv.gz',
+  min.cells = 10,
+  min.features = 200
+)
+lateral <- CreateSeuratObject(
+  counts = lateral_assay,
+  assay = 'peaks',
+  meta.data = lateral_metadata
+)
+```
+
+```{r}
+# load mgatk output
+mito.data <- ReadMGATK(dir = "/media/chang/HDD-10/derek/run_folders/cellranger_mkdfastq_outs/H5YGGDRX2/Front_cr/outs/mgatk_out/final")
+mito <- CreateAssayObject(counts = mito.data$counts)
+mito <- subset(mito, cells = colnames(front))
+front[["mito"]] <- mito
+front <- AddMetaData(front, metadata = mito.data$depth, col.name = "mtDNA_depth")
+front <- subset(front, mtDNA_depth >= 10)
+
+mito.data <- ReadMGATK(dir = "/media/chang/HDD-10/derek/run_folders/cellranger_mkdfastq_outs/H5YGGDRX2/Lateral_cr/outs/mgatk_out/final")
+mito <- CreateAssayObject(counts = mito.data$counts)
+mito <- subset(mito, cells = colnames(lateral))
+lateral[["mito"]] <- mito
+lateral <- AddMetaData(lateral, metadata = mito.data$depth, col.name = "mtDNA_depth")
+lateral <- subset(lateral, mtDNA_depth >= 10)
+
+DepthCor(front)
+DepthCor(lateral)
+```
+
+```{r}
+knn_smooth <- function(counts, knn) {
+  knn_norm <- knn / rowSums(knn)
+  smoothed <- Matrix::tcrossprod(counts, knn_norm)
+  return(smoothed)
+}
+
+front <- RunTFIDF(front)
+front <- FindTopFeatures(front, min.cutoff = 10)
+front <- RunSVD(front)
+front <- RunUMAP(front, reduction = "lsi", dims = 2:50)
+front <- FindNeighbors(front, reduction = "lsi", dims = 2:50)
+front <- FindClusters(front, resolution = 0.5, algorithm = 3)
+gene.activities <- GeneActivity(front)
+front[['RNA']] <- CreateAssayObject(counts = gene.activities)
+front <- NormalizeData(
+  object = front,
+  assay = 'RNA',
+  normalization.method = 'LogNormalize',
+  scale.factor = median(front$nCount_RNA)
+)
+
+knn <- front[['peaks_nn']]
+smoothed_rna <- knn_smooth(counts = front@assays$RNA@data, knn = knn)
+front[['impute']] <- CreateAssayObject(counts = smoothed_rna)
+DefaultAssay(front) <- 'impute'
+
+
+lateral <- RunTFIDF(lateral)
+lateral <- FindTopFeatures(lateral, min.cutoff = 10)
+lateral <- RunSVD(lateral)
+lateral <- RunUMAP(lateral, reduction = "lsi", dims = 2:50)
+lateral <- FindNeighbors(lateral, reduction = "lsi", dims = 2:50)
+lateral <- FindClusters(lateral, resolution = 0.5, algorithm = 3)
+gene.activities <- GeneActivity(lateral)
+lateral[['RNA']] <- CreateAssayObject(counts = gene.activities)
+lateral <- NormalizeData(
+  object = lateral,
+  assay = 'RNA',
+  normalization.method = 'LogNormalize',
+  scale.factor = median(lateral$nCount_RNA)
+)
+
+knn <- lateral[['peaks_nn']]
+smoothed_rna <- knn_smooth(counts = lateral@assays$RNA@data, knn = knn)
+lateral[['impute']] <- CreateAssayObject(counts = smoothed_rna)
+DefaultAssay(lateral) <- 'impute'
+
+test = FindMarkers(front, ident.1 = 2,only.pos = T, assay = 'impute')
+head(test[order(test$avg_log2FC, decreasing = T),], 20)
+FeaturePlot(
+    object = front,
+    features = c('SYNDIG1','APBA2','P2RY13',"F13A1","APOC1","APOE","SPP1","TNF","IL1B"),
+    pt.size = 1,
+    max.cutoff = 'q98',
+    ncol = 3
+) & NoAxes() & scale_color_viridis()
+```
+
+```{r}
+FeaturePlot(
+  object = front,
+  features = c('P2RY12', 'TNF', "IL1B", "MKI67","LGALS3", "GPNMB","LYZ","MRC1",
+               "PTPRZ1","TMEM119", "CX3CR1", "AIF1", "CD14", "CCR2","CCL3","SPP1"),
+  pt.size = 1,
+  max.cutoff = 'q98',
+  ncol = 4
+) & NoAxes() & scale_color_viridis()
+
+FeaturePlot(
+  object = lateral,
+  features = c('P2RY12', 'TNF', "IL1B", "MKI67","LGALS3", "GPNMB","LYZ","MRC1",
+               "PTPRZ1","TMEM119", "CX3CR1", "AIF1", "CD14", "CCR2","CCL3","SPP1"),
+  pt.size = 1,
+  max.cutoff = 'q98',
+  ncol = 4
+) & NoAxes() & scale_color_viridis()
+```
+
+```{r}
+front.sites <- IdentifyVariants(front, assay = "mito", refallele = mito.data$refallele)
+VariantPlot(variants = front.sites)
+lateral.sites <- IdentifyVariants(lateral, assay = "mito", refallele = mito.data$refallele)
+VariantPlot(variants = lateral.sites)
+
+front.conf <- subset(
+  front.sites, subset = n_cells_conf_detected >= 5 &
+    strand_correlation >= 0.65 &
+    vmr > 0.01
+)
+lateral.conf <- subset(
+  lateral.sites, subset = n_cells_conf_detected >= 5 &
+    strand_correlation >= 0.65 &
+    vmr > 0.01
+)
+front <- AlleleFreq(
+  object = front,
+  variants = front.conf$variant,
+  assay = "mito"
+)
+lateral <- AlleleFreq(
+  object = lateral,
+  variants = lateral.conf$variant,
+  assay = "mito"
+)
+
+DefaultAssay(front) <- "alleles"
+DefaultAssay(lateral) <- "alleles"
+```
+
+```{r}
+p1 = FeaturePlot(
+  object = front,
+  features = rownames(front@assays$alleles@counts)[1:16],
+  order = TRUE,pt.size = 1,
+  cols = c("grey", "darkred"),
+  ncol = 4
+) & NoLegend() & NoAxes()
+p2 = FeaturePlot(
+  object = front,
+  features = rownames(front@assays$alleles@counts)[17:32],
+  order = TRUE,pt.size = 1,
+  cols = c("grey", "darkred"),
+  ncol = 4
+) & NoLegend() & NoAxes()
+p3 = FeaturePlot(
+  object = front,
+  features = rownames(front@assays$alleles@counts)[33:48],
+  order = TRUE,pt.size = 1,
+  cols = c("grey", "darkred"),
+  ncol = 4
+) & NoLegend() & NoAxes()
+p4 = FeaturePlot(
+  object = front,
+  features = rownames(front@assays$alleles@counts)[49:64],
+  order = TRUE,pt.size = 1,
+  cols = c("grey", "darkred"),
+  ncol = 4
+) & NoLegend() & NoAxes()
+p5 = FeaturePlot(
+  object = front,
+  features = rownames(front@assays$alleles@counts)[65:80],
+  order = TRUE,pt.size = 1,
+  cols = c("grey", "darkred"),
+  ncol = 4
+) & NoLegend() & NoAxes()
+p6 = FeaturePlot(
+  object = front,
+  features = rownames(front@assays$alleles@counts)[81:96],
+  order = TRUE,pt.size = 1,
+  cols = c("grey", "darkred"),
+  ncol = 4
+) & NoLegend() & NoAxes()
+p7 = FeaturePlot(
+  object = front,
+  features = rownames(front@assays$alleles@counts)[97:105],
+  order = TRUE,pt.size = 1,
+  cols = c("grey", "darkred"),
+  ncol = 4
+) & NoLegend() & NoAxes()
+
+FeaturePlot(
+  object = lateral,
+  features = rownames(lateral@assays$alleles@counts),
+  order = TRUE,
+  cols = c("grey", "darkred"),
+  ncol = 4
+) & NoLegend() & NoAxes()
+
+length(intersect(rownames(front@assays$alleles@counts), rownames(front@assays$alleles@counts)))
+```

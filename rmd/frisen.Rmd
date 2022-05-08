@@ -1,0 +1,200 @@
+---
+title: "Frisen"
+output: html_notebook
+---
+
+```{r}
+library(Seurat)
+library(dittoSeq)
+library(harmony)
+library(SeuratWrappers)
+library(scCustomize)
+library(scds)
+library(presto)
+library(dplyr)
+```
+
+```{r}
+dir = "/media/chang/HDD-8/chang/cloneseq/mouse_fastqs/trex/"
+
+Process = function(sample){
+  dir2 = paste0(dir, sample,"/",sample,"/outs/filtered_feature_bc_matrix")
+  x = CreateSeuratObject(Read10X(dir2),project = sample)
+  dir3 = paste0(dir, sample, "/assign.csv")
+  trex = read.csv(dir3, row.names = 1)
+  x = subset(x, cells=rownames(trex))
+  trex = trex[colnames(x),]
+  x$clone = trex$sgRNAs
+  x$n_clone = trex$n_sgRNAs
+  x[['percent.mt']] = PercentageFeatureSet(x, pattern = "mt-",assay = 'RNA')
+  return(x)
+}
+
+samples = c("brain1_cx","brain1_hc","brain1_str",
+            "brain2_cx","brain2_hc","brain2_str",
+            "brain3_cx","brain3_hc","brain3_str",
+            "brain4_cx","brain4_hc","brain4_str")
+
+seuratObj = lapply(samples, function(i){
+  Process(i)
+})
+
+merged = merge(seuratObj[[1]], seuratObj[2:12])
+VlnPlot(merged3, features = "percent.mt", group.by = 'orig.ident')
+merged = subset(merged, subset=nFeature_RNA>=500 & percent.mt < 15)
+#VlnPlot(merged, features = 'nFeature_RNA', pt.size = .1) + ylim(500,2000)
+
+merged$Sample = "brain1"
+merged$Sample[grepl("brain2", merged$orig.ident)] = "brain2"
+merged$Sample[grepl("brain3", merged$orig.ident)] = "brain3"
+merged$Sample[grepl("brain4", merged$orig.ident)] = "brain4"
+merged$Age = "P11"
+merged$Age[grepl("brain3", merged$orig.ident)] = "P14"
+merged$Age[grepl("brain4", merged$orig.ident)] = "P12"
+merged$Sex = "M"
+merged$Sex[grepl("brain1", merged$orig.ident)] = "F"
+merged$Sex[grepl("brain4", merged$orig.ident)] = "F"
+
+clones = table(merged$clone)
+clones = clones[clones > 1]
+merged2 = subset(merged, subset=clone %in% names(clones))
+```
+
+```{r}
+merged2 = SCTransform(merged2, vst.flavor='v2', ncells=NULL, n_genes=NULL)
+merged2 = RunPCA(merged2)
+merged2 = RunUMAP(merged2, dims=1:30)
+merged2 = FindNeighbors(merged2, dims=1:30)
+merged2 = FindClusters(merged2, resolution = .1)
+
+DimPlot(merged2, cols=dittoColors(), label=T, pt.size = 1) + NoAxes()
+FeaturePlot(merged2, features = 'P2ry12')
+merged3 = subset(merged2, idents=c(5,6))
+
+
+merged3 = SCTransform(merged3, vst.flavor='v2', ncells=NULL, n_genes=NULL)
+merged3 = RunPCA(merged3, npcs = 30)
+merged3 = RunHarmony(merged3, dims=1:30, assay.use = 'SCT', 
+                     group.by.vars = 'Sample', plot_convergence = T)
+merged3 = RunUMAP(merged3, dims=1:30, reduction = 'harmony')
+merged3 = FindNeighbors(merged3, dims=1:30, reduction = 'harmony')
+merged3 = FindClusters(merged3, resolution=.1)
+
+DimPlot(merged3, label=T, cols=dittoColors(), 
+        group.by = 'SCT_snn_res.0.2') & NoAxes() & NoLegend()
+
+genes = c("P2ry12","Tmem119","Mki67",'F13a1',"Mrc1","Fos","Junb", "Cd63",
+          "Lgals3","Tnf","Cx3cr1","Spp1","Apoc1","Apoe", "Gpnmb","Ccl3")
+FeaturePlot(merged3, features = genes, order=T,max.cutoff = 'q99',
+            pt.size = .5) & NoAxes() & scale_color_viridis()
+
+VlnPlot(merged3, features = c("percent.mt",'nFeature_RNA','nCount_RNA'),
+        group.by = 'SCT_snn_res.0.2', cols=dittoColors())
+
+DimPlot(merged3, group.by = c('Sample', 'orig.ident','Age',"Sex"), 
+        cols=dittoColors(), pt.size = 1) & NoAxes()
+
+Idents(merged3) = merged3$SCT_snn_res.0.2
+markers = FindAllMarkers(merged3, only.pos = T)
+
+markers2 = markers[!grepl("Rpl", markers$gene),]
+markers2 = markers2[!grepl("Rps", markers2$gene),]
+markers2 = markers2[!grepl("mt", markers2$gene),]
+markers2 = markers2[!grepl("EGFP", markers2$gene),]
+
+markers2 %>%
+    group_by(cluster) %>%
+    top_n(n = 9, wt = avg_log2FC) -> top10
+
+DimPlot(merged3, group.by = c('clone'), cols=dittoColors()) & NoAxes() & NoLegend()
+
+dittoHeatmap(merged3,genes=unique(top10$gene), scaled.to.max = T,cluster_cols = F,
+             annot.by = c('SCT_snn_res.0.2',"clone"), order.by = 'clone') 
+
+dittoHeatmap(merged3,genes=unique(top10$gene), scaled.to.max = T,cluster_cols = F,
+             annot.by = c('SCT_snn_res.0.2','Sample',"clone"), order.by = 'clone') 
+
+dittoHeatmap(merged3,genes=unique(top10$gene), scaled.to.max = T,cluster_cols = F,
+             annot.by = c('SCT_snn_res.0.2',"clone"), order.by = 'SCT_snn_res.0.2') 
+```
+
+
+```{r}
+merged4 = subset(merged3, idents=c(0,1,2,5,6,8))
+
+merged4 = SCTransform(merged4, vst.flavor='v2', ncells=NULL, n_genes=NULL)
+merged4 = RunPCA(merged4, npcs = 30)
+merged4 = RunHarmony(merged4, dims=1:30, assay.use = 'SCT', 
+                     group.by.vars = 'Sample', plot_convergence = T)
+merged4 = RunUMAP(merged4, dims=1:30, reduction = 'harmony')
+merged4 = FindNeighbors(merged4, dims=1:30, reduction = 'harmony')
+merged4 = FindClusters(merged4, resolution=.8)
+
+DimPlot(merged4, label=T, cols=dittoColors(), pt.size = 1,
+        group.by = 'SCT_snn_res.0.8') & NoAxes() & NoLegend()
+
+FeaturePlot(merged4, features = genes, order=T,max.cutoff = 'q99',
+            pt.size = .5) & NoAxes() & scale_color_viridis()
+
+DimPlot(merged4, group.by = c('Sample', 'orig.ident','Age',"Sex"), 
+        cols=dittoColors(), pt.size = 1) & NoAxes()
+
+VlnPlot(merged4, features = c("percent.mt",'nFeature_RNA','nCount_RNA'),
+        group.by = 'SCT_snn_res.0.3', cols=dittoColors())
+
+Idents(merged4) = merged4$SCT_snn_res.0.3
+markers = FindAllMarkers(merged4, only.pos = T)
+
+markers2 = markers[!grepl("Rpl", markers$gene),]
+markers2 = markers2[!grepl("Rps", markers2$gene),]
+markers2 = markers2[!grepl("mt", markers2$gene),]
+markers2 = markers2[!grepl("EGFP", markers2$gene),]
+
+markers2 %>%
+    group_by(cluster) %>%
+    top_n(n = 9, wt = avg_log2FC) -> top10
+
+dittoHeatmap(merged4,genes=unique(top10$gene), scaled.to.max = F,cluster_cols = F,
+             annot.by = c('SCT_snn_res.0.3','Sample',"clone"), order.by = 'clone') 
+dittoHeatmap(merged4,genes=unique(top10$gene), scaled.to.max = F,cluster_cols = F,
+             annot.by = c('SCT_snn_res.0.3','Sample',"clone"), order.by = 'SCT_snn_res.0.3') 
+
+dittoHeatmap(merged4,genes=genes, scaled.to.max = T,cluster_cols = F,
+             annot.by = c('SCT_snn_res.0.3','Sample',"clone"), order.by = 'clone') 
+dittoHeatmap(merged4,genes=genes, scaled.to.max = T,cluster_cols = F,
+             annot.by = c('SCT_snn_res.0.3','Sample',"clone"), order.by = 'SCT_snn_res.0.3') 
+
+dittoBarPlot(merged4, var='clone', group.by = 'ident',legend.show = F) + 
+   theme(text = element_text(size=20))
+
+
+dittoBarPlot(merged4, var='orig.ident', group.by = 'ident',legend.show = T) + 
+    theme(text = element_text(size=20))
+
+
+clones = table(merged4$clone)
+clones = clones[clones > 3 & clones < 200]
+plot(clones)
+merged5 = subset(merged4, subset=clone %in% names(clones))
+
+dittoBarPlot(merged5, var='clone', group.by = 'ident',legend.show = F) + 
+   theme(text = element_text(size=20))
+
+dittoBarPlot(merged5, var='ident', group.by = 'clone',legend.show = T,xlab = NULL) + 
+   theme(text = element_text(size=20), axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+
+DimPlot(merged5, label=F, cols=dittoColors(), pt.size = 1,
+        group.by = 'clone') & NoAxes() & NoLegend()
+
+dittoHeatmap(merged5,genes=unique(top10$gene), scaled.to.max = T,cluster_cols = F,
+             annot.by = c('SCT_snn_res.0.8','Sample',"clone"), order.by = 'clone') 
+dittoHeatmap(merged5,genes=unique(top10$gene), scaled.to.max = T,cluster_cols = F,
+             annot.by = c('SCT_snn_res.0.8','Sample',"clone"), order.by = 'SCT_snn_res.0.3') 
+
+dittoHeatmap(merged5,genes=genes, scaled.to.max = T,cluster_cols = F,
+             annot.by = c('SCT_snn_res.0.8','Sample',"clone"), order.by = 'clone') 
+dittoHeatmap(merged5,genes=genes, scaled.to.max = T,cluster_cols = F,
+             annot.by = c('SCT_snn_res.0.8','Sample',"clone"), order.by = 'SCT_snn_res.0.3') 
+```
