@@ -24,6 +24,9 @@ library(UCell)
 library(MetBrewer)
 library(igraph)
 library(enrichR)
+library(CellChat)
+
+#load('/media/chang/HDD-1/chang/fastqs/aneu/solo.RData')
 ```
 
 ```{r}
@@ -127,11 +130,6 @@ a1211 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/aneu/a1211_Solo.out/", "a1211"
 a1217 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/aneu/a1217_Solo.out/", "a1217", 500)
 a219 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/aneu/a219_Solo.out/", "a219", 500, cutoff=2)
 #cav = ReadSTAR("/media/chang/HDD-7/chang/122120_czb/Cav_Paper/Cav_Solo.out/", "cav")
-```
-
-```{r}
-#save.image("/media/chang/HDD-1/chang/fastqs/aneu/solo.RData")
-#load("/media/chang/HDD-1/chang/fastqs/aneu/solo.RData")
 ```
 
 ```{r}
@@ -422,9 +420,219 @@ Stacked_VlnPlot(merged_subset, features = gwas_genes, x_lab_rotate = TRUE,
 ```
 
 ```{r}
-merged@graphs$RNA_snn = merged@graphs$integrated_snn
-merged@assays$RNA@data = merged@assays$SCT@data
-infos1 = Scissor(mtx, merged, meta$pheno, alpha = 0.05, 
-                 family = "binomial", Save_file = '/media/chang/HDD-1/chang/fastqs/aneu/Scissor.RData')
+Rcpp::sourceCpp(code='
+#include <Rcpp.h>
+using namespace Rcpp;
+// [[Rcpp::export]]
+IntegerMatrix asMatrix(NumericVector rp,
+                       NumericVector cp,
+                       NumericVector z,
+                       int nrows,
+                       int ncols){
+  int k = z.size() ;
+  IntegerMatrix  mat(nrows, ncols);
+  for (int i = 0; i < k; i++){
+      mat(rp[i],cp[i]) = z[i];
+  }
+  return mat;
+}
+' )
+
+
+as_matrix <- function(mat){
+  
+  row_pos <- mat@i
+  col_pos <- findInterval(seq(mat@x)-1,mat@p[-1])
+  
+  tmp <- asMatrix(rp = row_pos, cp = col_pos, z = mat@x,
+                  nrows =  mat@Dim[1], ncols = mat@Dim[2])
+  
+  row.names(tmp) <- mat@Dimnames[[1]]
+  colnames(tmp) <- mat@Dimnames[[2]]
+  return(tmp)
+}
 ```
 
+```{r}
+merged_subset@graphs$RNA_snn = merged_subset@graphs$SCT_snn
+DefaultAssay(merged_subset) = "RNA"
+merged_subset = NormalizeData(merged_subset)
+
+table(merged_subset$Condition)[[1]]/table(merged_subset$Condition)[[2]]
+
+infos1 = Scissor(bulk_dataset = mtx, sc_dataset= merged_subset, phenotype = meta$pheno,
+                 alpha = 0.05, family = "binomial", tag = c("UNR","RUP"),
+                 Save_file = '/media/chang/HDD-1/chang/fastqs/aneu/Scissor.RData')
+merged_subset$Scissor = "Neg"
+merged_subset$Scissor[infos1$Scissor_pos] = "Pos"
+
+evaluate_summary = evaluate.cell('/media/chang/HDD-1/chang/fastqs/aneu/Scissor.RData', 
+                                  infos1, FDR = 0.05, bootstrap_n = 100)
+evaluate_summary[1:5,1:4]
+
+infos2 = Scissor(bulk_dataset = mtx, sc_dataset= merged, phenotype = meta$pheno,
+                 alpha = 0.05, family = "binomial", tag = c("UNR","RUP"),
+                 Save_file = '/media/chang/HDD-1/chang/fastqs/aneu/Scissor.RData')
+merged$Scissor = "Neg"
+merged$Scissor[infos2$Scissor_pos] = "Pos"
+
+evaluate_summary2 = evaluate.cell('/media/chang/HDD-1/chang/fastqs/aneu/Scissor2.RData', 
+                                  infos2, FDR = 0.05, bootstrap_n = 100)
+evaluate_summary2[1:5,1:4]
+
+DimPlot_scCustom(seurat_object = merged, group.by = "Scissor", pt.size = 1) + NoAxes()
+DimPlot_scCustom(seurat_object = merged_subset, group.by = "Scissor", pt.size = 1) + NoAxes()
+dittoBarPlot(merged, var='Condition', group.by = 'Scissor')
+dittoBarPlot(merged_subset, var='Condition', group.by = 'Scissor')
+dittoBarPlot(merged_subset, var='Scissor', group.by = 'clusters')
+
+```
+
+
+```{r}
+merged$clusters = as.character(merged$SCT_snn_res.0.6)
+merged$clusters[merged$clusters == 0] = "SMC"
+merged$clusters[merged$clusters == 1] = "SMC"
+merged$clusters[merged$clusters == 5] = "SMC"
+merged$clusters[merged$clusters == 9] = "FBMC"
+merged$clusters[merged$clusters == 8] = "FB"
+merged$clusters[merged$clusters == 10] = "Aneu"
+merged$clusters[merged$clusters == 4] = "Ly_1"
+merged$clusters[merged$clusters == 7] = "Ly_2"
+merged$clusters[merged$clusters == 15] = "Ly_3"
+merged$clusters[merged$clusters == 19] = "Ly_4"
+merged$clusters[merged$clusters == 2] = "My_1"
+merged$clusters[merged$clusters == 6] = "My_2"
+merged$clusters[merged$clusters == 13] = "My_3"
+merged$clusters[merged$clusters == 16] = "My_4"
+merged$clusters[merged$clusters == 17] = "My_5"
+merged$clusters[merged$clusters == 12] = "Venule"
+merged$clusters[merged$clusters == 11] = "Artery"
+merged$clusters[merged$clusters == 20] = "Venous"
+merged$clusters[merged$clusters == 3] = "vSMC"
+merged$clusters[merged$clusters == 24] = "RBC"
+merged$clusters[merged$clusters == 25] = "BC"
+merged$clusters[merged$clusters == 30] = "LQ"
+merged$clusters[merged$clusters == 14] = "LQ"
+merged$clusters[merged$clusters == 18] = "FBMC_2"
+merged$clusters[merged$clusters == 22] = "OL"
+merged$clusters[merged$clusters == 29] = "AC"
+merged$clusters[merged$clusters == 28] = "PC"
+merged$clusters[merged$clusters == 21] = "Neu"
+merged$clusters[merged$clusters == 23] = "UNK"
+merged$clusters[merged$clusters == 27] = "FB_2"
+merged$clusters[merged$clusters == 26] = "vSMC"
+
+Idents(merged) = merged$clusters
+DimPlot_scCustom(seurat_object = merged, group.by = "clusters", 
+                 label=T, pt.size = .1) + NoAxes()
+```
+
+```{r}
+merged.split <- SplitObject(merged, split.by = 'Condition')
+
+passed = names(table(merged.split$Aneu$clusters)[table(merged.split$Aneu$clusters)>= 20])
+passed = passed[passed!="LQ"]
+merged.split$CTRL = subset(merged.split$CTRL, idents=passed)
+merged.split$Aneu = subset(merged.split$Aneu, idents=passed)
+
+
+cellchat.aneu <- createCellChat(object = merged.split$Aneu, group.by = "clusters")
+cellchat.ctrl <- createCellChat(object = merged.split$CTRL, group.by = "clusters")
+cellchat.aneu@DB <- CellChatDB.human
+cellchat.ctrl@DB <- CellChatDB.human
+cellchat.aneu <- subsetData(cellchat.aneu)
+cellchat.ctrl <- subsetData(cellchat.ctrl)
+cellchat.aneu <- identifyOverExpressedGenes(cellchat.aneu)
+cellchat.aneu <- identifyOverExpressedInteractions(cellchat.aneu)
+cellchat.aneu <- projectData(cellchat.aneu, PPI.human)
+cellchat.ctrl <- identifyOverExpressedGenes(cellchat.ctrl)
+cellchat.ctrl <- identifyOverExpressedInteractions(cellchat.ctrl)
+cellchat.ctrl <- projectData(cellchat.ctrl, PPI.human)
+cellchat.ctrl <- computeCommunProb(cellchat.ctrl)
+cellchat.ctrl <- filterCommunication(cellchat.ctrl, min.cells = 20)
+cellchat.aneu <- computeCommunProb(cellchat.aneu)
+cellchat.aneu <- filterCommunication(cellchat.aneu, min.cells = 20)
+cellchat.aneu <- computeCommunProbPathway(cellchat.aneu)
+cellchat.ctrl <- computeCommunProbPathway(cellchat.ctrl)
+cellchat.ctrl <- aggregateNet(cellchat.ctrl)
+cellchat.aneu <- aggregateNet(cellchat.aneu)
+cellchat.aneu <- netAnalysis_computeCentrality(cellchat.aneu, slot.name = "netP") 
+cellchat.ctrl <- netAnalysis_computeCentrality(cellchat.ctrl, slot.name = "netP") 
+
+object.list = list(cellchat.aneu,cellchat.ctrl)
+cellchat <- mergeCellChat(object.list,
+                          add.names = c("ANEU","CTRL"))
+
+gg1 <- compareInteractions(cellchat, show.legend = F, group = c(1,2))
+gg2 <- compareInteractions(cellchat, show.legend = F, group = c(1,2), measure = "weight")
+gg1 + gg2
+
+gg1 <- rankNet(cellchat, mode = "comparison", stacked = T, do.stat = TRUE)
+gg2 <- rankNet(cellchat, mode = "comparison", stacked = F, do.stat = TRUE)
+gg1 + gg2
+
+
+pathways.show <- c("PERIOSTIN") 
+weight.max <- getMaxWeight(object.list, slot.name = c("netP"), 
+                           attribute = pathways.show) 
+par(mfrow = c(1,2), xpd=TRUE)
+for (i in 1:length(object.list)) {
+  netVisual_aggregate(object.list[[i]], signaling = pathways.show, layout = "circle", 
+                      edge.width.max = 10, signaling.name = paste(pathways.show, names(object.list)[i]))
+}
+```
+
+
+```{r}
+merged.split.rupture <- SplitObject(merged.split$Aneu, split.by = 'Scissor')
+passed = names(table(merged.split.rupture$Pos$clusters)[table(merged.split.rupture$Pos$clusters)>= 20])
+merged.split.rupture$Neg = subset(merged.split.rupture$Neg, idents=passed)
+merged.split.rupture$Pos = subset(merged.split.rupture$Pos, idents=passed)
+
+cellchat.rupt <- createCellChat(object = merged.split.rupture$Pos, group.by = "clusters")
+cellchat.unrupt <- createCellChat(object = merged.split.rupture$Neg, group.by = "clusters")
+cellchat.rupt@DB <- CellChatDB.human
+cellchat.unrupt@DB <- CellChatDB.human
+cellchat.rupt <- subsetData(cellchat.rupt)
+cellchat.unrupt <- subsetData(cellchat.unrupt)
+cellchat.rupt <- identifyOverExpressedGenes(cellchat.rupt)
+cellchat.rupt <- identifyOverExpressedInteractions(cellchat.rupt)
+cellchat.rupt <- projectData(cellchat.rupt, PPI.human)
+cellchat.unrupt <- identifyOverExpressedGenes(cellchat.unrupt)
+cellchat.unrupt <- identifyOverExpressedInteractions(cellchat.unrupt)
+cellchat.unrupt <- projectData(cellchat.unrupt, PPI.human)
+cellchat.unrupt <- computeCommunProb(cellchat.unrupt)
+cellchat.unrupt <- filterCommunication(cellchat.unrupt, min.cells = 20)
+cellchat.rupt <- computeCommunProb(cellchat.rupt)
+cellchat.rupt <- filterCommunication(cellchat.rupt, min.cells = 20)
+cellchat.rupt <- computeCommunProbPathway(cellchat.rupt)
+cellchat.unrupt <- computeCommunProbPathway(cellchat.unrupt)
+cellchat.unrupt <- aggregateNet(cellchat.unrupt)
+cellchat.rupt <- aggregateNet(cellchat.rupt)
+cellchat.rupt <- netAnalysis_computeCentrality(cellchat.rupt, slot.name = "netP") 
+cellchat.unrupt <- netAnalysis_computeCentrality(cellchat.unrupt, slot.name = "netP") 
+
+object.list2 = list(cellchat.rupt,cellchat.unrupt)
+cellchat2 <- mergeCellChat(object.list2,
+                          add.names = c("Pos","Neg"))
+
+gg1 <- compareInteractions(cellchat2, show.legend = F, group = c(1,2))
+gg2 <- compareInteractions(cellchat2, show.legend = F, group = c(1,2), measure = "weight")
+gg1 + gg2
+
+gg1 <- rankNet(cellchat2, mode = "comparison", stacked = T, do.stat = TRUE, font.size = 15)
+gg2 <- rankNet(cellchat2, mode = "comparison", stacked = F, do.stat = TRUE, font.size = 15)
+gg1 + gg2
+
+
+pathways.show <- c("SEMA4") 
+weight.max <- getMaxWeight(object.list2, slot.name = c("netP"), 
+                           attribute = pathways.show) 
+par(mfrow = c(1,2), xpd=TRUE)
+for (i in 1:length(object.list)) {
+  netVisual_aggregate(object.list2[[i]], signaling = pathways.show, layout = "circle", 
+                      edge.width.max = 10, signaling.name = paste(pathways.show, names(object.list2)[i]))
+}
+
+```
