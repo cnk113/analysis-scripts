@@ -12,6 +12,8 @@ library(scCustomize)
 library(scds)
 library(presto)
 library(dplyr)
+
+save.image("/media/chang/HDD-8/chang/cloneseq/mouse_fastqs/trex/RData")
 ```
 
 ```{r}
@@ -191,7 +193,7 @@ DimPlot(merged5, label=F, cols=dittoColors(), pt.size = 1,
 dittoHeatmap(merged5,genes=unique(top10$gene), scaled.to.max = T,cluster_cols = F,
              annot.by = c('SCT_snn_res.0.8','Sample',"clone"), order.by = 'clone') 
 dittoHeatmap(merged5,genes=unique(top10$gene), scaled.to.max = T,cluster_cols = F,
-             annot.by = c('SCT_snn_res.0.8','Sample',"clone"), order.by = 'SCT_snn_res.0.3') 
+             annot.by = c('SCT_snn_res.0.8','Sample',"clone"), order.by = 'SCT_snn_res.0.8') 
 
 dittoHeatmap(merged5,genes=genes, scaled.to.max = T,cluster_cols = F,
              annot.by = c('SCT_snn_res.0.8','Sample',"clone"), order.by = 'clone') 

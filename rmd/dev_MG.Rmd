@@ -55,8 +55,8 @@ ReadSTAR <- function(data.dir, proj = "SeuratObject", feats = 1000, cutoff=1.5,d
 ```{r}
 ct = ReadSTAR("/media/chang/HDD-6/chang/mg/rna/MG_Ct/MG_Ct_Solo.out/","GW20_CTX", cutoff = 2)
 th = ReadSTAR("/media/chang/HDD-6/chang/mg/rna/MG_Th/MG_Th_Solo.out/","GW20_TH", cutoff = 1)
-gw18_multi = ReadSTAR("/media/chang/HDD-6/chang/mg/rna/Galina_Popova/GW18_multiome_RNA_Solo.out/","GW18_Multi", 500,drop.mt= TRUE)
-gw22_multi = ReadSTAR("/media/chang/HDD-6/chang/mg/rna/Galina_Popova/GW22_multiome_RNA_Solo.out/","GW22_Multi", 500,drop.mt= TRUE)
+gw18_multi = ReadSTAR("/media/chang/HDD-6/chang/mg/rna/GW18_multiome_RNA_Solo.out/","GW18_Multi", 500,drop.mt= TRUE)
+gw22_multi = ReadSTAR("/media/chang/HDD-6/chang/mg/rna/GW22_multiome_RNA_Solo.out/","GW22_Multi", 500,drop.mt= TRUE)
 gw8 = ReadSTAR("/media/chang/HDD-12/chang/devel/chinese_fetal_mg/HRA000720/HRR208121/GW8_MG_Solo.out/","GW8_CTX")
 gw10 = ReadSTAR("/media/chang/HDD-12/chang/devel/chinese_fetal_mg/HRA000720/HRR208122/GW10_MG_Solo.out/","GW10_CTX")
 gw12 = ReadSTAR("/media/chang/HDD-12/chang/devel/chinese_fetal_mg/HRA000720/HRR208123/GW12_MG_Solo.out/","GW12_CTX")

@@ -1,0 +1,231 @@
+---
+title: "process_all_samples"
+output: html_document
+---
+```{r setup, include=FALSE}
+library(Seurat)
+library(dittoSeq)
+library(harmony)
+library(SeuratWrappers)
+library(scCustomize)
+library(scds)
+library(presto)
+library(viridis)
+library(stringr)
+
+path = '/media/chang/HDD-12/chang/devel'
+```
+
+```{r}
+# data.dir should be Solo.out dir
+ReadSTAR <- function(data.dir, proj = "SeuratObject", feats = 1000, 
+                     sample="Sample", doublet=TRUE, chemistry='v2') {
+  data.dir.genefull = paste0(data.dir, "GeneFull_Ex50pAS/raw")
+  mtx = file.path(data.dir.genefull, "UniqueAndMult-EM.mtx")
+  cells = file.path(data.dir.genefull, "barcodes.tsv")
+  features = file.path(data.dir.genefull, "features.tsv")
+  seurat = as.Seurat(cxds_bcds_hybrid(as.SingleCellExperiment(
+    CreateSeuratObject(ReadMtx(mtx = mtx, cells = cells, features = features), 
+         project = proj, min.features = feats))))
+  data.dir.velo = paste0(data.dir, "/Velocyto/raw")
+  cells = file.path(data.dir.velo, "barcodes.tsv")
+  features = file.path(data.dir.velo, "features.tsv")
+  spliced = file.path(data.dir.velo, "spliced.mtx")
+  unspliced = file.path(data.dir.velo, "unspliced.mtx")
+  ambi = file.path(data.dir.velo, "ambiguous.mtx")
+  spliced = ReadMtx(mtx = spliced, cells = cells, features = features)
+  unspliced = ReadMtx(mtx = unspliced, cells = cells, features = features)
+  ambi = ReadMtx(mtx = ambi, cells = cells, features = features)
+  spliced = spliced + ambi
+  spliced = spliced[,colnames(seurat)]
+  unspliced = unspliced[,colnames(seurat)]
+  seurat[['spliced']] = CreateAssayObject(spliced)
+  seurat[['unspliced']] = CreateAssayObject(unspliced)
+  seurat[['percent.mt']] = PercentageFeatureSet(seurat, pattern = "MT-",assay = 'RNA')
+  if(doublet == TRUE){
+    n_cells = dim(seurat)[2]
+    if (n_cells >= 15000){
+      seurat = subset(seurat, subset=percent.mt <= 20 & hybrid_score < 1)
+    } else if(n_cells >= 10000){
+      seurat = subset(seurat, subset=percent.mt <= 20 & hybrid_score < 1.25)
+    } else if(n_cells >= 5000){
+      seurat = subset(seurat, subset=percent.mt <= 20 & hybrid_score < 1.5)
+    } else if(n_cells < 5000){
+      seurat = subset(seurat, subset=percent.mt <= 20 & hybrid_score < 1.75)
+    }
+  } else{
+    seurat = subset(seurat, subset=percent.mt <= 20)
+  }
+  seurat$Sample = sample
+  seurat$orig.ident = paste0(sample, "_", seurat$orig.ident)
+  seurat$Chemistry = chemistry
+  return(seurat)
+}
+```
+
+```{r}
+# science interneuron paper
+dirs = '/media/chang/HDD-12/chang/devel/science_inter/'
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+seurat = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Science_Inter")
+})
+seurat = merge(seurat[[1]], seurat[2:length(samples)])
+```
+
+```{r}
+dirs = '/media/chang/HDD-12/chang/devel/nature_neuro_inter/'
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+seurat2 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Nature_Neuro_Inter")
+})
+seurat2 = merge(seurat2[[1]], seurat2[2:length(samples)])
+```
+
+```{r}
+dirs = '/media/chang/HDD-12/chang/devel/china_hippocampus/STARSolo/'
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+seurat3 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Nature_Hippo")
+})
+seurat3 = merge(seurat3[[1]], seurat3[2:length(samples)])
+```
+
+```{r}
+dirs = '/media/chang/HDD-12/chang/devel/china_hypo/STARSolo/'
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+seurat4 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Cell_Hypo")
+})
+seurat4 = merge(seurat4[[1]], seurat4[2:length(samples)])
+```
+
+```{r}
+dirs = '/media/chang/HDD-12/chang/devel/gbm_fetal/STARSolo_fetal_ol/'
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+seurat5 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Fetal_OL")
+})
+seurat5 = merge(seurat5[[1]], seurat5[2:length(samples)])
+```
+
+```{r}
+dirs = '/media/chang/HDD-12/chang/devel/gbm_fetal/STARSolo_gbm_fetal/'
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+seurat6 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GBM_Fetal")
+})
+seurat6 = merge(seurat6[[1]], seurat6[2:length(samples)])
+```
+
+```{r}
+dirs = '/media/chang/HDD-12/chang/devel/german_cerebellum/STARSolo/'
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+seurat7 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "German_Cerebellum")
+})
+seurat7 = merge(seurat7[[1]], seurat7[2:length(samples)])
+```
+
+```{r}
+dirs = '/media/chang/HDD-12/chang/devel/MSAP08/STARSolo/'
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+seurat8 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Alex")
+})
+seurat8 = merge(seurat8[[1]], seurat8[2:length(samples)])
+```
+
+```{r}
+dirs = '/media/chang/HDD-12/chang/devel/brainstem/STARSolo/'
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+seurat9 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Brainstem")
+})
+seurat9 = merge(seurat9[[1]], seurat9[2:length(samples)])
+```
+
+```{r}
+dirs = '/media/chang/HDD-12/chang/devel/ziffra/STARSolo/'
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+seurat10 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Ziffra")
+})
+seurat10 = merge(seurat10[[1]], seurat10[2:length(samples)])
+```
+
+```{r}
+dirs = '/media/chang/HDD-12/chang/devel/chinese_fetal_mg/HRA000720/STARSolo/'
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+seurat11 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Cortex_MG")
+})
+seurat11 = merge(seurat11[[1]], seurat11[2:length(samples)])
+
+dirs = '/media/chang/HDD-12/chang/devel/chinese_fetal_mg/HRA002150/STARSolo/'
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+seurat12 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Area_MG",
+           doublet = FALSE)
+})
+seurat12 = merge(seurat12[[1]], seurat12[2:length(samples)])
+n_samples = table(seurat12$orig.ident)
+n_samples = n_samples[n_samples >= 100]
+seurat12 = subset(seurat12, subset=orig.ident %in% names(n_samples))
+```
+
+```{r}
+dirs = '/media/chang/HDD-9/chang/April2019NeMoSubmission/GW14/'
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+gw14 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW14_Aparna")
+})
+gw14 = merge(gw14[[1]], gw14[2:length(samples)])
+## Dont run 17 cuz IDK
+dirs = '/media/chang/HDD-9/chang/April2019NeMoSubmission/GW17/'
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+gw17 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW14_Aparna")
+})
+gw17 = merge(gw17[[1]], gw17[2:length(samples)])
+```
+
+```{r}
+dirs = '/media/chang/HDD-9/chang/April2020NeMoSubmission/'
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+gw19_2 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW19_2_Aparna")
+})
+gw19_2 = merge(gw19_2[[1]], gw19_2[2:length(samples)])
+```
+
