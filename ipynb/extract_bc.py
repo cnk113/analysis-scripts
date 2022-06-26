@@ -1,7 +1,8 @@
 import pyfastx
-import sys
+import argparse
 
-# python extract_bc.py fastq/LIB5456569_SAM24416644_S1_L001_R2_001.fastq.gz 25 80 wl/sense_wl_clipped.txt > output.txt
+
+# python extract_bc.py --fastq fastq/LIB5456569_SAM24416644_S1_L001_R2_001.fastq.gz --start 25 --end 80 --whitelist wl/sense_wl_clipped.txt > intersected_bc.txt
 
 
 def read_wl(path, reads):
@@ -23,6 +24,16 @@ def parse_fastq(path, start, end):
 
 
 if __name__ == "__main__":
-    reads = parse_fastq(sys.argv[1], int(sys.argv[2]), int(sys.argv[3]))
-    read_wl(sys.argv[4], reads)
-
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--fastq', type=str, nargs=1, required=True,
+                        help="Input read fastq with barcode segment")
+    parser.add_argument('--start', type=int, nargs=1, required=True,
+                        help="Start of the barcode segment, 0-indexed")
+    parser.add_argument('--end', type=int, nargs=1,  required=True,
+                        help="End of the barcode segment, 0-indexed")
+    parser.add_argument('--whitelist', type=str, nargs=1, required=True,
+                        help="Whitelist of all barcodes seperated by line")
+    args = parser.parse_args()
+    
+    reads = parse_fastq(args.fastq, args.start, args.end)
+    read_wl(args.whitelist, reads)
