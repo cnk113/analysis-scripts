@@ -13,7 +13,7 @@ library(scds)
 library(Scissor)
 library(presto)
 library(WGCNA)
-library(scWGCNA)
+library(hdWGCNA)
 library(MAGMA.Celltyping)
 library(EWCE)
 library(MungeSumstats)
@@ -25,6 +25,8 @@ library(MetBrewer)
 library(igraph)
 library(enrichR)
 library(CellChat)
+library(UCell)
+library(pathfindR)
 
 #load('/media/chang/HDD-1/chang/fastqs/aneu/solo.RData')
 ```
@@ -60,22 +62,6 @@ ReadSTAR <- function(data.dir, proj = "SeuratObject", feats = 1000, cutoff=1) {
   seurat = subset(seurat, subset=hybrid_score < cutoff & percent.mt < 30)
   return(seurat)
 }
-
-'''
-cxds_bcds_hybrid_seurat_batch <- function(obj, batch = "orig.ident", ... ) {
-  sub = SplitObject(obj, split.by = batch)
-  sub = lapply(sub, function(x){
-    x = as.SingleCellExperiment(x)
-    x = cxds_bcds_hybrid(x)
-    as.Seurat(x)
-  })
-  return(merge(sub[[1]], sub[2:length(sub)]))
-}  
-
-cxds_bcds_hybrid_seurat <- function(obj, ... ) {
-  return(as.Seurat(cxds_bcds_hybrid(as.SingleCellExperiment(obj))))
-} 
-'''
 ```
 
 ```{r}
@@ -105,20 +91,6 @@ rownames(mtx) = genes$gene_name
 ```
 
 ```{r}
-genome_ref_path = get_genome_ref(
-  storage_dir = "/media/chang/HDD-1/chang/fastqs/aneu/aneu_gwas/",
-  method = c("magma"), population = c("eur", "afr", "amr", "eas", "sas"))
-
-path_formatted = format_sumstats(path="/media/chang/HDD-1/chang/fastqs/aneu/aneu_gwas/",
-                                                 save_path = tempfile(fileext = ".formatted.tsv.gz"),
-                                                 ref_genome ="GRCh37")
-
-genesOutPath = map_snps_to_genes(path_formatted = path_formatted,
-                                                    genome_build = "GRCh37",
-                                                    genome_ref_path = genome_ref_path)
-```
-
-```{r}
 ctrl085_L = ReadSTAR("/media/chang/HDD-1/chang/fastqs/ctrl/ctrl085_L_Solo.out/", "ctrl085_L",cutoff = 1.5)
 ctrl085_S = ReadSTAR("/media/chang/HDD-1/chang/fastqs/ctrl/ctrl085_S_Solo.out/", "ctrl085_S",cutoff = 2)
 ctrl086_1 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/ctrl/ctrl086_1_Solo.out/", "ctrl086_1")
@@ -126,9 +98,9 @@ ctrl086_2 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/ctrl/ctrl086_2_Solo.out/",
 ctrl099_21 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/ctrl/ctrl099_21_Solo.out/", "ctrl099_21")
 ctrl099_22 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/ctrl/ctrl099_22_Solo.out/", "ctrl099_22")
 ctrl12 = ReadSTAR("/media/chang/HDD-7/chang/122120_czb/AVM_Paper/EW_Peri_Ctr/reads/ctrl12_Solo.out/", "ctrl12", cutoff=2)
-a1211 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/aneu/a1211_Solo.out/", "a1211", 500)
-a1217 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/aneu/a1217_Solo.out/", "a1217", 500)
-a219 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/aneu/a219_Solo.out/", "a219", 500, cutoff=2)
+a1211 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/aneu/aneu_sc/a1211_Solo.out/", "a1211", 500, cutoff = 1)
+a1217 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/aneu/aneu_sc/a1217_Solo.out/", "a1217", 500, cutoff = 1)
+a219 = ReadSTAR("/media/chang/HDD-1/chang/fastqs/aneu/aneu_sc/a219_Solo.out/", "a219", 500, cutoff=2)
 #cav = ReadSTAR("/media/chang/HDD-7/chang/122120_czb/Cav_Paper/Cav_Solo.out/", "cav")
 ```
 
@@ -143,267 +115,22 @@ merged$Sample[grepl('ctrl086', merged$orig.ident)] = "ctrl086"
 ```
 
 ```{r}
-merged = SCTransform(merged, vst.flavor='v2', n_genes=NULL, ncells=NULL)
+merged = SCTransform(merged, vst.flavor='v2', n_genes=NULL, ncells=NULL,variable.features.n = 3000)
+VariableFeatures(merged) = VariableFeatures(merged)[!grepl("RPS", VariableFeatures(merged))] 
+VariableFeatures(merged) = VariableFeatures(merged)[!grepl("RPL", VariableFeatures(merged))] 
+VariableFeatures(merged) = VariableFeatures(merged)[!grepl("MT-", VariableFeatures(merged))] 
+VariableFeatures(merged) = VariableFeatures(merged)[!grepl("MALAT1", VariableFeatures(merged))] 
+
 merged = RunPCA(merged)
 merged = RunHarmony(merged, group.by.vars = c("Sample",'Condition'), plot_convergence = T, assay.use = "SCT")
 merged = RunUMAP(merged, dims=1:50, reduction='harmony')
 merged = FindNeighbors(merged, dims=1:50, reduction = 'harmony')
+merged = FindClusters(merged, resolution = 1.2, algorithm = 2)
 
-merged = FindClusters(merged, resolution = .1)
+DimPlot(merged, cols=dittoColors(), label=T, group.by='SCT_snn_res.0.4') + NoAxes()
+DimPlot(merged, cols=dittoColors(), label=F, group.by='Condition') + NoAxes()
 
-merged_subset = subset(merged, idents=c(0,3,4,5))
-merged_subset = RunUMAP(merged_subset, dims=1:50, reduction='harmony')
-merged_subset = FindNeighbors(merged_subset, dims=1:50, reduction = 'harmony')
-
-merged_subset = FindClusters(merged_subset, resolution = .4)
-
-DimPlot(merged_subset, cols=dittoColors(), label=T, group.by='SCT_snn_res.0.4') + NoAxes()
-DimPlot(merged_subset, cols=dittoColors(), label=F, group.by='Condition') + NoAxes()
-
-FeaturePlot(merged_subset, features = 'hybrid_score', order=T,max.cutoff = 'q100')
-
-FeaturePlot(merged_subset, features = c("HIGD1B","DCN","LUM","KCNT2","CNN1","KCNJ8","ACTA2","RGS5","CLDN5"),max.cutoff = 'q99',ncol = 3, order=T) & NoAxes() & scale_color_viridis_c()
-
-merged_subset$clusters = as.character(merged_subset$SCT_snn_res.0.4)
-merged_subset$clusters[merged_subset$clusters == 0] = "SMC"
-merged_subset$clusters[merged_subset$clusters == 1] = "SMC"
-merged_subset$clusters[merged_subset$clusters == 2] = "SMC"
-merged_subset$clusters[merged_subset$clusters == 13] = "PC"
-merged_subset$clusters[merged_subset$clusters == 12] = "PC"
-merged_subset$clusters[merged_subset$clusters == 10] = "Venous"
-merged_subset$clusters[merged_subset$clusters == 7] = "Artery"
-merged_subset$clusters[merged_subset$clusters == 8] = "Venule"
-merged_subset$clusters[merged_subset$clusters == 5] = "FBMC"
-merged_subset$clusters[merged_subset$clusters == 4] = "FB"
-merged_subset$clusters[merged_subset$clusters == 3] = "vSMC"
-merged_subset$clusters[merged_subset$clusters == 6] = "Aneu"
-merged_subset$clusters[merged_subset$clusters == 9] = "ExVivo"
-merged_subset$clusters[merged_subset$clusters == 11] = "Aneu"
-
-test = wilcoxauc(merged_subset, group_by = "clusters",seurat_assay = 'SCT')
-dittoBarPlot(merged_subset, var='Condition', group.by = 'clusters')
-```
-
-```{r}
-merged_subset2 = merged_subset
-merged_subset2 = RunPCA(merged_subset2)
-merged_subset2 = RunHarmony(merged_subset2, group.by.vars = c("Sample",'Condition'),
-                            plot_convergence = T, assay.use = "SCT")
-merged_subset2 = RunUMAP(merged_subset2, dims=1:50, reduction='harmony')
-merged_subset2 = FindNeighbors(merged_subset2, dims=1:50, reduction = 'harmony')
-DimPlot(merged_subset2, cols=dittoColors(), label=F, group.by='Condition') + NoAxes()
-
-```
-
-```{r}
-merged_ctrl = subset(merged, subset=Condition == "CTRL")
-#merged_ctrl = SCTransform(merged_ctrl, vst.flavor='v2', n_genes=NULL, ncells=NULL)
-#merged_ctrl = RunPCA(merged_ctrl)
-
-merged_aneu = subset(merged, subset=Condition == "Aneu")
-
-VariableFeaturePlot_scCustom(merged_subset, num_features = 20, repel = TRUE,
-    y_axis_log = TRUE, assay = 'SCT')
-
-
-merged_subset_wgcna = merged_subset
-
-merged_subset_wgcna = SetupForWGCNA(
-  merged_subset_wgcna,
-  gene_select = "fraction", # the gene selection approach
-  fraction = 0.01, # fraction of cells that a gene needs to be expressed in order to be included
-  wgcna_name = "Vasc" # the name of the scWGCNA experiment
-)
-
-merged_subset_wgcna <- MetacellsByGroups(
-  seurat_obj = merged_subset_wgcna,
-  group.by = c("clusters", "Sample"), # specify the columns in seurat_obj@meta.data to group by
-  k = 20, # nearest-neighbors parameter
-  ident.group = 'clusters' # set the Idents of the metacell seurat object
-)
-
-# normalize metacell expression matrix:
-merged_subset_wgcna <- NormalizeMetacells(merged_subset_wgcna)
-
-merged_subset_wgcna <- SetDatExpr(
-  merged_subset_wgcna,
-  group_name = unique(merged_subset_wgcna$clusters),
-  group.by='clusters' # the metadata column containing the cell type info. This same column should have also been used in MetacellsByGroups
-)
-
-merged_subset_wgcna = TestSoftPowers(
-  merged_subset_wgcna,
-  setDatExpr = FALSE, # set this to FALSE since we did this above
-)
-
-plot_list <- PlotSoftPowers(merged_subset_wgcna)
-
-wrap_plots(plot_list, ncol=2)
-
-power_table <- GetPowerTable(merged_subset_wgcna)
-head(power_table)
-
-merged_subset_wgcna <- ConstructNetwork(
-  merged_subset_wgcna, soft_power=6,
-  setDatExpr=FALSE
-)
-
-PlotDendrogram(merged_subset_wgcna, main='scWGCNA Dendrogram')
-
-# expression matrix for all the WGCNA genes:
-merged_subset_wgcna <- ScaleData(
- merged_subset_wgcna,
- features = GetWGCNAGenes(merged_subset_wgcna)
-)
-
-merged_subset_wgcna <- GetResidual(
- merged_subset_wgcna,
- features = GetWGCNAGenes(merged_subset_wgcna)
-)
-
-# compute all MEs in the full single-cell dataset
-merged_subset_wgcna <- ModuleEigengenes(
- merged_subset_wgcna,
- group.by.vars=c("Sample","Condition")
-)
-
-hMEs <- GetMEs(merged_subset_wgcna,harmonized = TRUE)
-
-merged_subset_wgcna <- ModuleConnectivity(merged_subset_wgcna)
-
-merged_subset_wgcna <- ResetModuleNames(
-  merged_subset_wgcna,
-  new_name = "Aneu"
-)
-
-modules <- GetModules(merged_subset_wgcna)
-
-merged_subset_wgcna <- ModuleExprScore(
-  merged_subset_wgcna,
-  n_genes = 25,
-  method='UCell'
-)
-
-plot_list <- ModuleFeaturePlot(
-  merged_subset_wgcna,
-  features='hMEs', # plot the hMEs
-  order=TRUE # order so the points with highest hMEs are on top
-)
-
-# stitch together with patchwork
-wrap_plots(plot_list, ncol=5)
-
-ModuleCorrelogram(merged_subset_wgcna)
-
-GGally::ggpairs(GetMEs(merged_subset_wgcna))
-
-# add hMEs to Seurat meta-data:
-merged_subset_wgcna@meta.data <- cbind(
-  merged_subset_wgcna@meta.data,
-  GetMEs(merged_subset_wgcna, harmonized=TRUE)
-)
-selected_mods <- paste0('Aneu', c(1:10))
-VlnPlot(
-  merged_subset_wgcna,
-  features = selected_mods,
-  group.by = 'clusters',
-  pt.size = 0 # don't show actual data points
-)
-
-theme_set(theme_cowplot())
-
-ModuleNetworkPlot(merged_subset_wgcna)
-
-HubGeneNetworkPlot(
-  merged_subset_wgcna,
-  n_hubs = 3, n_other=5,
-  edge_prop = 0.75,
-  mods = 'all'
-)
-
-merged_subset_wgcna <- RunModuleUMAP(
-  merged_subset_wgcna,
-  n_hubs = 10, # number of hub genes to include for the UMAP embedding
-  n_neighbors=15, # neighbors parameter for UMAP
-  min_dist=0.1 # min distance between points in UMAP space
-)
-
-umap_df <- GetModuleUMAP(merged_subset_wgcna)
-ggplot(umap_df, aes(x=UMAP1, y=UMAP2)) +
-  geom_point(
-   color=umap_df$color, # color each point by WGCNA module
-   size=umap_df$kME*2 # size of each point based on intramodular connectivity
-  ) + umap_theme()
-
-p1 = ModuleUMAPPlot(
-  merged_subset_wgcna,
-  edge.alpha=0.15,
-  sample_edges=TRUE,
-  edge_prop=0.2, # proportion of edges to sample (20% here)
-  label_hubs=4 # how many hub genes to plot per module?
-)
-
-
-merged_subset_wgcna$Condition <- as.factor(merged_subset_wgcna$Condition)
-cur_traits <- c('hybrid_score', 'nCount_RNA', 'nFeature_RNA', 'percent.mt', 'Condition')
-merged_subset_wgcna <- ModuleTraitCorrelation(
-  merged_subset_wgcna,
-  traits = cur_traits,
-  group.by='clusters'
-)
-mt_cor <- GetModuleTraitCorrelation(merged_subset_wgcna)
-PlotModuleTraitCorrelation(
-  merged_subset_wgcna,
-  label = 'fdr',
-  label_symbol = 'stars',
-  text_size = 2,
-  text_digits = 2,
-  text_color = 'white',
-  high_color = 'yellow',
-  mid_color = 'black',
-  low_color = 'purple',
-  plot_max = 0.2,
-  combine=TRUE
-)
-
-dbs <- c('GO_Biological_Process_2021','GO_Cellular_Component_2021','GO_Molecular_Function_2021')
-merged_subset_wgcna <- RunEnrichr(
-  merged_subset_wgcna,
-  dbs=dbs, # character vector of enrichr databases to test
-  max_genes = 100 # number of genes per module to test
-)
-
-# retrieve the output table
-enrich_df <- GetEnrichrTable(merged_subset_wgcna)
-
-EnrichrDotPlot(
-  merged_subset_wgcna,
-  mods = "all", # use all modules (this is the default behavior)
-  database = "GO_Biological_Process_2021", # this has to be one of the lists we used above!!!
-  n_terms=1 # number of terms for each module
-)
-```
-
-```{r}
-gwas_genes = c('SLC22A5','SLC22A4','P4HA2','SOX17','NT5C2','MARCKSL1P1',
-                'FGD6','NR2C1','PSMA4','BCAR1','RP11.252K23.2')
-
-FeaturePlot(merged_subset, features = gwas_genes,max.cutoff = 'q99',ncol = 3, order=T) & NoAxes() & scale_color_viridis_c()
-
-DimPlot_scCustom(merged_subset, split.by = "Condition", num_columns = 2, 
-                 repel = TRUE, split_seurat = TRUE,group.by = 'clusters', 
-                 colors_use=met.brewer(name = 'VanGogh1',type="continuous",n=10)) & NoAxes()
-
-DimPlot_scCustom(merged_subset, split.by = "Condition", num_columns = 2, label = T,
-                 repel = TRUE, split_seurat = TRUE,group.by = 'clusters', 
-                 colors_use=dittoColors()) & NoAxes()
-
-
-Stacked_VlnPlot(merged_subset, features = gwas_genes, x_lab_rotate = TRUE,
-    colors_use = dittoColors(), split.by = "Condition", group.by = 'clusters') 
-
-
-
+FeaturePlot(merged, features = c("HIGD1B","DCN","LUM","KCNT2","CNN1","KCNJ8","ACTA2","RGS5","CLDN5"),max.cutoff = 'q99',ncol = 3, order=T) & NoAxes() & scale_color_viridis_c()
 ```
 
 ```{r}
@@ -454,31 +181,23 @@ as_matrix <- function(mat){
 ```
 
 ```{r}
-merged_subset@graphs$RNA_snn = merged_subset@graphs$SCT_snn
-DefaultAssay(merged_subset) = "RNA"
-merged_subset = NormalizeData(merged_subset)
+merged@graphs$RNA_snn = merged@graphs$SCT_snn
+DefaultAssay(merged) = "RNA"
+merged = NormalizeData(merged)
+merged@assays$RNA@data = merged@assays$SCT@data
 
-table(merged_subset$Condition)[[1]]/table(merged_subset$Condition)[[2]]
-
-infos1 = Scissor(bulk_dataset = mtx, sc_dataset= merged_subset, phenotype = meta$pheno,
-                 alpha = 0.05, family = "binomial", tag = c("UNR","RUP"),
+infos = Scissor(bulk_dataset = mtx, sc_dataset= merged, phenotype = meta$pheno,
+                 alpha = NULL, family = "binomial", tag = c("UNR","RUP"),cutoff = .3,
                  Save_file = '/media/chang/HDD-1/chang/fastqs/aneu/Scissor.RData')
-merged_subset$Scissor = "Neg"
-merged_subset$Scissor[infos1$Scissor_pos] = "Pos"
+merged$Scissor = "BG"
+merged$Scissor[infos$Scissor_pos] = "Pos"
+merged$Scissor[infos$Scissor_neg] = "Neg"
+
+save.image('/media/chang/HDD-1/chang/fastqs/aneu/solo.RData')
 
 evaluate_summary = evaluate.cell('/media/chang/HDD-1/chang/fastqs/aneu/Scissor.RData', 
-                                  infos1, FDR = 0.05, bootstrap_n = 100)
+                                  infos, FDR = 0.05, bootstrap_n = 100)
 evaluate_summary[1:5,1:4]
-
-infos2 = Scissor(bulk_dataset = mtx, sc_dataset= merged, phenotype = meta$pheno,
-                 alpha = 0.05, family = "binomial", tag = c("UNR","RUP"),
-                 Save_file = '/media/chang/HDD-1/chang/fastqs/aneu/Scissor.RData')
-merged$Scissor = "Neg"
-merged$Scissor[infos2$Scissor_pos] = "Pos"
-
-evaluate_summary2 = evaluate.cell('/media/chang/HDD-1/chang/fastqs/aneu/Scissor2.RData', 
-                                  infos2, FDR = 0.05, bootstrap_n = 100)
-evaluate_summary2[1:5,1:4]
 
 DimPlot_scCustom(seurat_object = merged, group.by = "Scissor", pt.size = 1) + NoAxes()
 DimPlot_scCustom(seurat_object = merged_subset, group.by = "Scissor", pt.size = 1) + NoAxes()
@@ -490,45 +209,68 @@ dittoBarPlot(merged_subset, var='Scissor', group.by = 'clusters')
 
 
 ```{r}
-merged$clusters = as.character(merged$SCT_snn_res.0.6)
-merged$clusters[merged$clusters == 0] = "SMC"
-merged$clusters[merged$clusters == 1] = "SMC"
-merged$clusters[merged$clusters == 5] = "SMC"
-merged$clusters[merged$clusters == 9] = "FBMC"
-merged$clusters[merged$clusters == 8] = "FB"
-merged$clusters[merged$clusters == 10] = "Aneu"
-merged$clusters[merged$clusters == 4] = "Ly_1"
-merged$clusters[merged$clusters == 7] = "Ly_2"
-merged$clusters[merged$clusters == 15] = "Ly_3"
-merged$clusters[merged$clusters == 19] = "Ly_4"
-merged$clusters[merged$clusters == 2] = "My_1"
-merged$clusters[merged$clusters == 6] = "My_2"
-merged$clusters[merged$clusters == 13] = "My_3"
-merged$clusters[merged$clusters == 16] = "My_4"
-merged$clusters[merged$clusters == 17] = "My_5"
-merged$clusters[merged$clusters == 12] = "Venule"
-merged$clusters[merged$clusters == 11] = "Artery"
-merged$clusters[merged$clusters == 20] = "Venous"
-merged$clusters[merged$clusters == 3] = "vSMC"
-merged$clusters[merged$clusters == 24] = "RBC"
-merged$clusters[merged$clusters == 25] = "BC"
-merged$clusters[merged$clusters == 30] = "LQ"
-merged$clusters[merged$clusters == 14] = "LQ"
-merged$clusters[merged$clusters == 18] = "FBMC_2"
-merged$clusters[merged$clusters == 22] = "OL"
-merged$clusters[merged$clusters == 29] = "AC"
-merged$clusters[merged$clusters == 28] = "PC"
-merged$clusters[merged$clusters == 21] = "Neu"
-merged$clusters[merged$clusters == 23] = "UNK"
-merged$clusters[merged$clusters == 27] = "FB_2"
-merged$clusters[merged$clusters == 26] = "vSMC"
+merged$clusters2 = as.character(merged$SCT_snn_res.1.2)
+merged$clusters2[merged$SCT_snn_res.1.2 == 1] = "SMC1"
+merged$clusters2[merged$SCT_snn_res.1.2 == 2] = "SMC1"
+merged$clusters2[merged$SCT_snn_res.1.2 == 3] = "SMC1"
+merged$clusters2[merged$SCT_snn_res.1.2 == 5] = "SMC1"
+merged$clusters2[merged$SCT_snn_res.1.2 == 19] = "SMC1"
+merged$clusters2[merged$SCT_snn_res.1.2 == 36] = "SMC1"
+merged$clusters2[merged$SCT_snn_res.1.2 == 8] = "FBMC1"
+merged$clusters2[merged$SCT_snn_res.1.2 == 26] = "FBMC2"
+merged$clusters2[merged$SCT_snn_res.1.2 == 40] = "LQ"
+merged$clusters2[merged$SCT_snn_res.1.2 == 42] = "LQ"
+merged$clusters2[merged$SCT_snn_res.1.2 == 11] = "FB1"
+merged$clusters2[merged$SCT_snn_res.1.2 == 16] = "FB2"
+merged$clusters2[merged$SCT_snn_res.1.2 == 34] = "FB3"
+merged$clusters2[merged$SCT_snn_res.1.2 == 13] = "Aneu1"
+merged$clusters2[merged$SCT_snn_res.1.2 == 20] = "Aneu2"
+merged$clusters2[merged$SCT_snn_res.1.2 == 25] = "PC"
+merged$clusters2[merged$SCT_snn_res.1.2 == 7] = "SMC2"
+merged$clusters2[merged$SCT_snn_res.1.2 == 21] = "SMC3"
+merged$clusters2[merged$SCT_snn_res.1.2 == 30] = "OL"
+merged$clusters2[merged$SCT_snn_res.1.2 == 33] = "OC"
+merged$clusters2[merged$SCT_snn_res.1.2 == 37] = "AC"
+merged$clusters2[merged$SCT_snn_res.1.2 == 10] = "Artery"
+merged$clusters2[merged$SCT_snn_res.1.2 == 12] = "Venule"
+merged$clusters2[merged$SCT_snn_res.1.2 == 28] = "Venous"
+merged$clusters2[merged$SCT_snn_res.1.2 == 39] = "LQ"
+merged$clusters2[merged$SCT_snn_res.1.2 == 31] = "RBC"
+merged$clusters2[merged$SCT_snn_res.1.2 == 4] = "Ly1"
+merged$clusters2[merged$SCT_snn_res.1.2 == 6] = "Ly2"
+merged$clusters2[merged$SCT_snn_res.1.2 == 35] = "Ly2"
+merged$clusters2[merged$SCT_snn_res.1.2 == 18] = "Ly3"
+merged$clusters2[merged$SCT_snn_res.1.2 == 24] = "Ly4"
+merged$clusters2[merged$SCT_snn_res.1.2 == 29] = "Neu"
+merged$clusters2[merged$SCT_snn_res.1.2 == 41] = "Neu"
+merged$clusters2[merged$SCT_snn_res.1.2 == 38] = "pDC"
+merged$clusters2[merged$SCT_snn_res.1.2 == 43] = "BC"
+merged$clusters2[merged$SCT_snn_res.1.2 == 32] = "BC"
+merged$clusters2[merged$SCT_snn_res.1.2 == 14] = "BC"
+merged$clusters2[merged$SCT_snn_res.1.2 == 23] = "cDC"
+merged$clusters2[merged$SCT_snn_res.1.2 == 0] = "PVM1"
+merged$clusters2[merged$SCT_snn_res.1.2 == 9] = "PVM1"
+merged$clusters2[merged$SCT_snn_res.1.2 == 17] = "PVM2"
+merged$clusters2[merged$SCT_snn_res.1.2 == 15] = "PVM3"
+merged$clusters2[merged$SCT_snn_res.1.2 == 27] = "PVM3"
+merged$clusters2[merged$SCT_snn_res.1.2 == 22] = "PVM4"
 
-Idents(merged) = merged$clusters
+Idents(merged) = merged$clusters2
 DimPlot_scCustom(seurat_object = merged, group.by = "clusters", 
                  label=T, pt.size = .1) + NoAxes()
 ```
 
 ```{r}
+unk = FindMarkers(merged, ident.1 = 'UNK', only.pos = T)
+write.table(unk[order(unk$avg_log2FC, decreasing = T),],'unk_markers.csv', 
+            quote=F, sep='\t')
+```
+
+```{r}
+merged@assays$RNA@data <- shifted_log_transform(merged@assays$RNA@counts, 
+                                                overdispersion = 0.01, on_disk = TRUE)
+DefaultAssay(merged) = "RNA"
+
 merged.split <- SplitObject(merged, split.by = 'Condition')
 
 passed = names(table(merged.split$Aneu$clusters)[table(merged.split$Aneu$clusters)>= 20])
@@ -536,9 +278,8 @@ passed = passed[passed!="LQ"]
 merged.split$CTRL = subset(merged.split$CTRL, idents=passed)
 merged.split$Aneu = subset(merged.split$Aneu, idents=passed)
 
-
-cellchat.aneu <- createCellChat(object = merged.split$Aneu, group.by = "clusters")
-cellchat.ctrl <- createCellChat(object = merged.split$CTRL, group.by = "clusters")
+cellchat.aneu <- createCellChat(object = merged.split$Aneu, group.by = "clusters", assay = "SCT")
+cellchat.ctrl <- createCellChat(object = merged.split$CTRL, group.by = "clusters", assay = "SCT")
 cellchat.aneu@DB <- CellChatDB.human
 cellchat.ctrl@DB <- CellChatDB.human
 cellchat.aneu <- subsetData(cellchat.aneu)
@@ -581,11 +322,23 @@ for (i in 1:length(object.list)) {
   netVisual_aggregate(object.list[[i]], signaling = pathways.show, layout = "circle", 
                       edge.width.max = 10, signaling.name = paste(pathways.show, names(object.list)[i]))
 }
+
+num.link <- sapply(object.list, function(x) {rowSums(x@net$count) + colSums(x@net$count)-diag(x@net$count)})
+weight.MinMax <- c(min(num.link), max(num.link)) # control the dot size in the different datasets
+gg <- list()
+for (i in 1:length(object.list)) {
+  gg[[i]] <- netAnalysis_signalingRole_scatter(object.list[[i]], title = names(object.list)[i], weight.MinMax = weight.MinMax)
+}
+#> Signaling role analysis on the aggregated cell-cell communication network from all signaling pathways
+#> Signaling role analysis on the aggregated cell-cell communication network from all signaling pathways
+patchwork::wrap_plots(plots = gg)
 ```
 
 
 ```{r}
-merged.split.rupture <- SplitObject(merged.split$Aneu, split.by = 'Scissor')
+merged.split$Aneu$Scissor2 = merged.split$Aneu$Scissor
+merged.split$Aneu$Scissor2[merged.split$Aneu$Scissor2 == "BG"] = "Neg"
+merged.split.rupture <- SplitObject(merged.split$Aneu, split.by = 'Scissor2')
 passed = names(table(merged.split.rupture$Pos$clusters)[table(merged.split.rupture$Pos$clusters)>= 20])
 merged.split.rupture$Neg = subset(merged.split.rupture$Neg, idents=passed)
 merged.split.rupture$Pos = subset(merged.split.rupture$Pos, idents=passed)
@@ -626,7 +379,7 @@ gg2 <- rankNet(cellchat2, mode = "comparison", stacked = F, do.stat = TRUE, font
 gg1 + gg2
 
 
-pathways.show <- c("SEMA4") 
+pathways.show <- c("ICAM") 
 weight.max <- getMaxWeight(object.list2, slot.name = c("netP"), 
                            attribute = pathways.show) 
 par(mfrow = c(1,2), xpd=TRUE)
@@ -635,4 +388,232 @@ for (i in 1:length(object.list)) {
                       edge.width.max = 10, signaling.name = paste(pathways.show, names(object.list2)[i]))
 }
 
+
+gg1 <- netAnalysis_signalingChanges_scatter(cellchat2, idents.use = "OC", signaling.exclude = c("SPP1","GALECTIN"))
+gg2 <- netAnalysis_signalingChanges_scatter(cellchat2, idents.use = "Aneu1", signaling.exclude = c("FN1","COLLAGEN","SPP1", "MIF", "LAMININ"))
+patchwork::wrap_plots(plots = list(gg1,gg2))
+```
+
+```{r}
+merged.vasc2 = merged.vasc
+merged3 = merge(merged.aneu, ctrl12)
+cells = intersect(colnames(merged.vasc2), colnames(merged3))
+merged3 = subset(merged3, cells=cells)
+
+cells2 = setdiff(colnames(merged.vasc2), cells)
+tmp = merged.vasc2@meta.data
+merged.vasc2 = subset(merged.vasc2, cells=cells2)
+merged.vasc2 = merge(merged.vasc2, merged3)
+tmp = tmp[colnames(merged.vasc2),]
+merged.vasc2$clusters = tmp$clusters
+merged.vasc2$Scissor = tmp$Scissor
+merged.vasc2$Condition = tmp$Condition
+merged.vasc2$Sample = tmp$Sample
+merged.vasc = merged.vasc2
+
+merged.vasc = subset(merged2, idents=c("FB1","Aneu1","Aneu2","FBMC1","FBMC2",
+                                      "FB2","SMC2","PC"))
+
+DefaultAssay(merged.vasc) = 'RNA'
+merged.vasc = NormalizeData(merged.vasc)
+merged.vasc = SCTransform(merged.vasc, vst.flavor='v2', ncells=NULL, n_genes=NULL)
+VariableFeatures(merged.vasc) = VariableFeatures(merged.vasc)[!grepl("RPS", VariableFeatures(merged.vasc))] 
+VariableFeatures(merged.vasc) = VariableFeatures(merged.vasc)[!grepl("RPL", VariableFeatures(merged.vasc))] 
+VariableFeatures(merged.vasc) = VariableFeatures(merged.vasc)[!grepl("MT-", VariableFeatures(merged.vasc))] 
+VariableFeatures(merged.vasc) = VariableFeatures(merged.vasc)[!grepl("MALAT1", VariableFeatures(merged.vasc))] 
+merged.vasc@assays$SCT@scale.data = merged.vasc@assays$SCT@scale.data[VariableFeatures(merged.vasc),] 
+
+
+merged.vasc = RunPCA(merged.vasc, npcs = 30)
+merged.vasc = RunHarmony(merged.vasc, group.by.vars = c('Sample', "Condition"), 
+                         plot_convergence = T, assay.use = "SCT")
+merged.vasc = RunUMAP(merged.vasc, dims=1:30, reduction = 'harmony')
+merged.vasc = FindNeighbors(merged.vasc, dims=1:30, reduction = 'harmony')
+merged.vasc = FindClusters(merged.vasc , resolution = .1, algorithm = 2)
+
+seuratToH5AD(merged.vasc, "aneu.h5ad", rownames(merged.vasc@assays$SCT@data))
+
+DimPlot(merged.vasc, label=T, pt.size = 1, cols=dittoColors(),
+        group.by = 'clusters') + NoAxes()
+DimPlot(merged.vasc, label=T, pt.size = 1, cols=dittoColors(), 
+        group.by = 'Condition') + NoAxes()
+DimPlot(merged.vasc, label=T, pt.size = 1, cols=dittoColors(), 
+        group.by = 'Scissor') + NoAxes()
+FeaturePlot(merged.vasc, features = 'KCNJ8', order=T, max.cutoff = 'q99') + 
+  NoAxes() + scale_color_viridis_c()
+
+markers = wilcoxauc(merged.vasc, seurat_assay = 'SCT')
+top_markers(markers)
+```
+
+```{r}
+gwas_genes = c('SLC22A5','SLC22A4','P4HA2','SOX17','NT5C2','MARCKSL1P1',
+                'FGD6','NR2C1','PSMA4','BCAR1','RP11.252K23.2')
+gwas = list()
+gwas$gwas = gwas_genes
+gwas$background = setdiff(rownames(merged@assays$SCT@counts) ,gwas$gwas)
+
+FeaturePlot(merged, features = gwas,max.cutoff = 'q99',ncol=3, order=T, pt.size = .1) &   NoAxes() & scale_color_viridis_c()
+
+merged = AddModuleScore_UCell(merged, features = gwas, assay = 'SCT', maxRank = 34000)
+
+FeaturePlot(merged, features = c("gwas_UCell"), max.cutoff = 'q99', order=T, 
+            pt.size = .1, min.cutoff = 'q25') & NoAxes() & scale_color_viridis_c()
+``` 
+
+# Plotting for the paper
+```{r}
+hsamgi <- buildMSIGDB(species="human",keytype="SYMBOL",anntype="GO")
+hsakom <- buildAnnot(species = "human",keytype="SYMBOL", anntype = "KEGGM")
+
+setwd("~/Aneu_paper")
+
+id = unique(Idents(merged))
+id = id[id !="LQ"]
+merged2 = subset(merged, idents=id)
+merged2$clusters[merged2$clusters == "FB3"] = "FBMC3"
+merged2$clusters[merged2$clusters == "Artery"] = "EC1"
+merged2$clusters[merged2$clusters == "Venule"] = "EC2"
+merged2$clusters[merged2$clusters == "Venous"] = "EC3"
+Idents(merged2) = merged2$clusters
+
+merged2@assays$RNA@data <- shifted_log_transform(merged2@assays$RNA@counts, 
+                                                overdispersion = 0.01, on_disk = TRUE)
+
+
+saveRDS(merged2,file="/media/chang/HDD-1/chang/fastqs/aneu/merged.rds")
+
+pdf("UMAP_merged.pdf",width = 12)
+DimPlot_scCustom(merged2, label=F,group.by = 'clusters', raster = F, pt.size = .1) + DimPlot_scCustom(merged2, group.by = 'Condition', colors_use = c("red","lightgray"),raster = F, pt.size = .1) & NoAxes() & NoLegend()
+dev.off()
+
+pdf("UMAP_legend_merged.pdf",width = 12)
+DimPlot_scCustom(merged2, label=F, group.by = 'clusters', raster = T, pt.size = .2) + DimPlot_scCustom(merged2, group.by = 'Condition', colors_use = c("red","lightgray"),raster = T, pt.size = .2) & NoAxes()
+dev.off()
+
+
+pdf("bar_clusters_condition.pdf")
+dittoBarPlot(merged2, var='Condition', group.by = 'clusters', color.panel = c("red","lightgray"))
+dev.off()
+
+write.table(data.frame(rbind(table(merged2$Sample, merged2$clusters))), sep=',',
+            "sample_cluster_cell_count.csv",row.names =TRUE, quote=F)
+
+markers = wilcoxauc(merged2, seurat_assay = 'SCT',group_by = "clusters")
+top5 = top_markers(markers, n = 3)
+top5 = unlist(top5)
+top5 = unique(top5[4:length(top5)])
+top5 = top5[!grepl("RPS",top5)]
+top5 = top5[!grepl("RPL",top5)]
+top5 = top5[!grepl("ENSG",top5)]
+top5 = top5[!grepl("HSPA",top5)]
+top5 = top5[!grepl("HLA",top5)]
+
+pdf('dotplot.pdf', width = 14, height = 10)
+top5 = c("DCN",'LUM',"KCNJ8",'ACTA2','CNN1','LYZ','MRC1','F13A1','CD1C','CD8A','CD8B','KCNT2',
+         'HIGD1B','CLDN5','ARL15','MECOM','VWF','MFSD2A','IGKC','PTPRC','MMP9','ACP5',"CD3D",
+         'SPP1','GNLY','PLP1','PTPRZ1','NRXN1','GPC6','LAMA2','CCL19','IGFBP5','TSHZ2',"GFAP",
+         'HBB','HBA1','HBA2','APOD','MYH11','DLC1','NKG7','CCL5','IGFBP7','COL1A2','OLIG1',"GPNMB",
+         'SPARC',"BGN","PTGDS","JCHAIN","ZFHX3",'CXCR4',"CD79A","CCL2","PTPRK","VCAN","P2RY13")
+Clustered_DotPlot(merged2, features = top5, k = 9,row_label_size = 13)
+dev.off()
+
+
+merged2$group = merged2$Condition
+merged2$sample = merged2$Sample
+meta2 = propeller(merged2)
+pdf('prop_volcano.pdf', width = 14, height = 10)
+EnhancedVolcano(meta2,
+    lab = rownames(meta2),
+    x = 'Tstatistic',
+    y = 'FDR',
+    title = 'Aneu versus CTRL',
+    pCutoff = .05,
+    FCcutoff = 1,
+    pointSize = 3.0,
+    labSize = 5.0, ylim=c(0,6),xlim=c(-8,8),
+    col=c('black', 'black', 'black', 'red3'),
+    colAlpha = 1)
+dev.off()
+
+
+DefaultAssay(merged2) = "SCT"
+avg = AverageExpression(merged2, assays = 'SCT', group.by = 'clusters')
+avg = avg$SCT[,c("SMC1","SMC2","SMC3","PC","FB1","FB2","FBMC1","FBMC2","FBMC3",
+                 "Aneu1","Aneu2")]
+cor.matrix = cor(avg)
+pdf("heatmap_cor.pdf", width = 10)
+pheatmap::pheatmap(cor.matrix, cluster_rows = T, cluster_cols = T, color=viridis(30)) 
+dev.off()
+
+fb1.markers = FindMarkers(merged2, ident.1 = "Aneu1", ident.2 = "FB1", only.pos = T)
+fb1.markers = fb1.markers[!grepl("RPS", rownames(fb1.markers)),]
+fb1.markers = fb1.markers[!grepl("MT-", rownames(fb1.markers)),]
+fb1.markers = fb1.markers[!grepl("RPL", rownames(fb1.markers)),]
+fb1.markers$gene = rownames(fb1.markers)
+output_df <- run_pathfindR(fb1.markers[,c('gene','avg_log2FC','p_val_adj')])
+
+aneu2.markers = FindMarkers(merged2, ident.1 = "Aneu2", ident.2 = "SMC2", only.pos = T)
+aneu2.markers = aneu2.markers[!grepl("RPS", rownames(aneu2.markers)),]
+aneu2.markers = aneu2.markers[!grepl("MT-", rownames(aneu2.markers)),]
+aneu2.markers = aneu2.markers[!grepl("RPL", rownames(aneu2.markers)),]
+aneu2.markers$gene = rownames(aneu2.markers)
+output_df2 <- run_pathfindR(aneu2.markers[,c('gene','avg_log2FC','p_val_adj')])
+
+combined_df <- combine_pathfindR_results(result_A = output_df, 
+                                         result_B = output_df2)
+combined_df2 = combined_df[combined_df$combined_p < .000000001,]
+combined_results_graph(combined_df2)
+
+aneu.markers = FindMarkers(merged2, ident.1 = "Aneu1", ident.2 = "Aneu2")
+aneu.markers = FindMarkers(merged2, ident.1 = "Pos", ident.2 = "Neg", 
+                           subset.ident = "Aneu1", group.by = 'Scissor')
+aneu.markers$gene = rownames(aneu.markers)
+aneu.markers = aneu.markers[!grepl("RPS", rownames(aneu.markers)),]
+aneu.markers = aneu.markers[!grepl("MT-", rownames(aneu.markers)),]
+aneu.markers = aneu.markers[!grepl("RPL", rownames(aneu.markers)),]
+
+resgo <- richGO(rownames(aneu.markers[aneu.markers$avg_log2FC > 0.25 & aneu.markers$p_val_adj < .01,]),godata = hsamgi,ontology ="BP")
+resgo2 <- richGO(rownames(aneu.markers[aneu.markers$avg_log2FC < -.25 & aneu.markers$p_val_adj < .01,]),godata = hsamgi,ontology ="BP")
+
+res <- compareResult(list(Aneu1=resgo,Aneu2=resgo2))
+res2 = res[res$Padj < .000001,]
+
+pdf("aneu_dotplot.pdf",width = 12, height = 10)
+comparedot(res2,alpha = 1,low = 'lightgrey', high = 'red')
+dev.off()
+
+output_df3 <- run_pathfindR(aneu.markers[,c('gene','avg_log2FC','p_val_adj')])
+EnhancedVolcano(aneu.markers,
+    lab = rownames(aneu.markers),
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+    title = 'Aneu1 versus Aneu2',
+    pCutoff = 10e-50,
+    FCcutoff = 1,
+    pointSize = 3.0,
+    labSize = 6.0,
+    col=c('black', 'black', 'black', 'red3'),
+    colAlpha = 1)
+
+
+DimPlot_scCustom(merged2, group.by = 'Scissor', pt.size = .2, 
+                 colors_use = c("lightgrey","orange", "red")) + NoAxes()
+pdf("scissor_barplot.pdf")
+dittoBarPlot(merged2, var='Scissor', group.by = 'clusters', 
+             color.panel  =  c("lightgrey","orange", "red"))
+dev.off()
+
+numbers <- length(infos$Scissor_pos) + length(infos$Scissor_neg)
+result1 <- reliability.test(X, Y, network, alpha = 0.05, family = "cox", cell_num = numbers, n = 10, nfold = 10)
+
+
+c("EC1","EC2","EC3","PC","SMC1","SMC2","SMC3","FBMC1","FBMC2","FBMC3","FB1","FB2",
+  "BC","cDC","pDC","Ly1","Ly2","Ly3","Ly4","PVM1","PVM2","PVM4","PVM3","OC","AC",
+  "Neur","OL")
+```
+
+
+```{r}
+sce = as.SingleCellExperiment(merged2)
 ```
