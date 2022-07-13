@@ -321,3 +321,40 @@ ggplot(result2, aes(gene_id,z_value)) + geom_point() + theme_bw() +
 
 ```
 
+```{r}
+opl33$orig.ident[opl33$orig.ident == "SL268"] = "Lane1"
+opl33$orig.ident[opl33$orig.ident == "SL269"] = "Lane2"
+
+opl33 = FindClusters(opl33, resolution = .1)
+
+seurat = subset(opl33, idents=c(0,1,3,5))
+passed_genes = names(table(seurat$gene)[table(seurat$gene) >= 50])
+seurat = subset(seurat, subset= gene %in% passed_genes)
+
+seurat = SCTransform(seurat, vst.flavor="v2", n_genes=NULL, ncells=NULL)
+seurat = RunPCA(seurat)
+seurat = RunUMAP(seurat, dims=1:30)
+seurat = FindNeighbors(seurat, dims=1:30)
+
+seurat = FindClusters(seurat, resolution = .6)
+
+p1 = DimPlot_scCustom(seurat, label=T, pt.size = 1) + NoLegend() + NoAxes()
+p2 = DimPlot_scCustom(seurat, label=F, pt.size = 1, group.by = 'orig.ident') + NoAxes()
+p1+p2 
+
+dittoBarPlot(seurat, var='ident', group.by = 'gene', scale = 'count', max = 100) + NoLegend()+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=7)) 
+
+dittoBarPlot(seurat, var='ident', group.by = 'gene') + NoLegend()+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=10)) 
+p3 = Meta_Highlight_Plot(seurat, meta_data_column = "gene",meta_data_highlight = "LY6K", pt.size = 1,
+                    highlight_color = "firebrick", background_color = "lightgray") + NoAxes()
+
+test2 = FindMarkers(seurat,ident.1 = 9, only.pos = T)
+
+test = FindMarkers(seurat, subset.ident = 9, group.by = 'gene', ident.1 = "LY6K")
+head(test[order(test$avg_log2FC, decreasing = T),])
+seurat2 = subset(seurat, ident=9)
+seurat2$ident = 'Other'
+seurat2$ident[seurat2$gene == "LY6K"] = 'LY6K'
+p4 = VlnPlot(seurat2, features = 'LRRC75A', group.by = 'ident',
+        pt.size = 0, cols=dittoColors())
+```

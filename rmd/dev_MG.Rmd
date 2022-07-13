@@ -53,6 +53,21 @@ ReadSTAR <- function(data.dir, proj = "SeuratObject", feats = 1000, cutoff=1.5,d
 ```
 
 ```{r}
+dirs = '/media/chang/HDD-12/chang/devel/chinese_fetal_mg/HRA002150/STARSolo/'
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+seurat12 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Area_MG",
+           doublet = FALSE)
+})
+seurat12 = merge(seurat12[[1]], seurat12[2:length(samples)])
+n_samples = table(seurat12$orig.ident)
+n_samples = n_samples[n_samples >= 100]
+seurat12 = subset(seurat12, subset=orig.ident %in% names(n_samples))
+```
+
+```{r}
 ct = ReadSTAR("/media/chang/HDD-6/chang/mg/rna/MG_Ct/MG_Ct_Solo.out/","GW20_CTX", cutoff = 2)
 th = ReadSTAR("/media/chang/HDD-6/chang/mg/rna/MG_Th/MG_Th_Solo.out/","GW20_TH", cutoff = 1)
 gw18_multi = ReadSTAR("/media/chang/HDD-6/chang/mg/rna/GW18_multiome_RNA_Solo.out/","GW18_Multi", 500,drop.mt= TRUE)

@@ -12,21 +12,23 @@ library(scds)
 library(presto)
 library(viridis)
 library(stringr)
+library(transformGamPoi)
 
 path = '/media/chang/HDD-12/chang/devel'
 ```
 
 ```{r}
 # data.dir should be Solo.out dir
-ReadSTAR <- function(data.dir, proj = "SeuratObject", feats = 1000, 
+ReadSTAR <- function(data.dir, proj = "SeuratObject", feats = 500, counts = 1000, 
                      sample="Sample", doublet=TRUE, chemistry='v2') {
   data.dir.genefull = paste0(data.dir, "GeneFull_Ex50pAS/raw")
   mtx = file.path(data.dir.genefull, "UniqueAndMult-EM.mtx")
   cells = file.path(data.dir.genefull, "barcodes.tsv")
   features = file.path(data.dir.genefull, "features.tsv")
-  seurat = as.Seurat(cxds_bcds_hybrid(as.SingleCellExperiment(
-    CreateSeuratObject(ReadMtx(mtx = mtx, cells = cells, features = features), 
-         project = proj, min.features = feats))))
+  seurat = CreateSeuratObject(ReadMtx(mtx = mtx, cells = cells, features = features), 
+         project = proj, min.features = feats)
+  seurat = subset(seurat, subset=nCount_RNA >= counts)
+  seurat = as.Seurat(cxds_bcds_hybrid(as.SingleCellExperiment(seurat)))
   data.dir.velo = paste0(data.dir, "/Velocyto/raw")
   cells = file.path(data.dir.velo, "barcodes.tsv")
   features = file.path(data.dir.velo, "features.tsv")
@@ -57,7 +59,7 @@ ReadSTAR <- function(data.dir, proj = "SeuratObject", feats = 1000,
     seurat = subset(seurat, subset=percent.mt <= 20)
   }
   seurat$Sample = sample
-  seurat$orig.ident = paste0(sample, "_", seurat$orig.ident)
+  #seurat$orig.ident = paste0(sample, "_", seurat$orig.ident)
   seurat$Chemistry = chemistry
   return(seurat)
 }
@@ -70,9 +72,22 @@ setwd(dirs)
 dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
 samples = str_sub(dir,1,nchar(dir)-9)
 seurat = lapply(c(1:length(samples)), function(i){
-  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Science_Inter")
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Shi_2021")
 })
 seurat = merge(seurat[[1]], seurat[2:length(samples)])
+seurat$Sample = seurat$orig.ident
+seurat$Sample[grepl("GE_GW12_2", seurat$orig.ident)] = "GE_GW12_2"
+seurat$Area = "GE"
+seurat$Area[grepl("MGE", seurat$orig.ident)] = "MGE"
+seurat$Area[grepl("LGE", seurat$orig.ident)] = "LGE"
+seurat$Area[grepl("CGE", seurat$orig.ident)] = "CGE"
+seurat$Age = "GW18"
+seurat$Age[grepl("GW12", seurat$orig.ident)] =  "GW12"
+seurat$Age[grepl("GW13", seurat$orig.ident)] =  "GW13"
+seurat$Age[grepl("GW16", seurat$orig.ident)] =  "GW16"
+seurat$Age[grepl("GW18", seurat$orig.ident)] =  "GW18"
+seurat$Age[grepl("GW9", seurat$orig.ident)] =  "GW9"
+
 ```
 
 ```{r}
@@ -81,9 +96,15 @@ setwd(dirs)
 dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
 samples = str_sub(dir,1,nchar(dir)-9)
 seurat2 = lapply(c(1:length(samples)), function(i){
-  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Nature_Neuro_Inter")
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Yu_2021")
 })
 seurat2 = merge(seurat2[[1]], seurat2[2:length(samples)])
+seurat2$Sample = seurat2$orig.ident
+seurat2$Area = "GE"
+seurat2$Age = "GW11"
+seurat2$Age[grepl("GW12", seurat2$orig.ident)] =  "GW12"
+seurat2$Age[grepl("GW10", seurat2$orig.ident)] =  "GW10"
+seurat2$Age[grepl("GW9", seurat2$orig.ident)] =  "GW9"
 ```
 
 ```{r}
@@ -92,9 +113,18 @@ setwd(dirs)
 dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
 samples = str_sub(dir,1,nchar(dir)-9)
 seurat3 = lapply(c(1:length(samples)), function(i){
-  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Nature_Hippo")
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Zhong_2020")
 })
 seurat3 = merge(seurat3[[1]], seurat3[2:length(samples)])
+seurat3$orig.ident = paste0(seurat3$orig.ident, "_Hippo")
+seurat3$Sample = seurat3$orig.ident
+seurat3$Area = "Hippocampus"
+seurat3$Age = "GW20"
+seurat3$Age[grepl("GW22", seurat3$orig.ident)] =  "GW22"
+seurat3$Age[grepl("GW16", seurat3$orig.ident)] =  "GW16"
+seurat3$Age[grepl("GW18", seurat3$orig.ident)] =  "GW18"
+seurat3$Age[grepl("GW25", seurat3$orig.ident)] =  "GW25"
+seurat3$Age[grepl("GW27", seurat3$orig.ident)] =  "GW27"
 ```
 
 ```{r}
@@ -103,9 +133,21 @@ setwd(dirs)
 dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
 samples = str_sub(dir,1,nchar(dir)-9)
 seurat4 = lapply(c(1:length(samples)), function(i){
-  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Cell_Hypo")
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Zhou_2021")
 })
 seurat4 = merge(seurat4[[1]], seurat4[2:length(samples)])
+seurat4$orig.ident = paste0(seurat4$orig.ident, "_Hypo")
+seurat4$Sample = seurat4$orig.ident
+seurat4$Sample[grepl("GW18_02", seurat4$orig.ident)] = "GW18_02_Hypo"
+seurat4$Sample[grepl("GW8", seurat4$orig.ident)] = "GW8_Hypo"
+seurat4$Sample[grepl("GW5", seurat4$orig.ident)] = "GW5_Hypo"
+seurat4$Area = "Hypothalamus"
+seurat4$Age = "GW18"
+seurat4$Age[grepl("GW20", seurat4$orig.ident)] =  "GW20"
+seurat4$Age[grepl("GW15", seurat4$orig.ident)] =  "GW15"
+seurat4$Age[grepl("GW12", seurat4$orig.ident)] =  "GW12"
+seurat4$Age[grepl("GW10", seurat4$orig.ident)] =  "GW10"
+seurat4$Age[grepl("GW8", seurat4$orig.ident)] =  "GW8"
 ```
 
 ```{r}
@@ -117,6 +159,9 @@ seurat5 = lapply(c(1:length(samples)), function(i){
   ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Fetal_OL")
 })
 seurat5 = merge(seurat5[[1]], seurat5[2:length(samples)])
+seurat5$Sample = paste0(seurat5$orig.ident, "_OL")
+seurat5$Area ="OL"
+seurat5$Age = "Second"
 ```
 
 ```{r}
@@ -128,6 +173,15 @@ seurat6 = lapply(c(1:length(samples)), function(i){
   ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GBM_Fetal")
 })
 seurat6 = merge(seurat6[[1]], seurat6[2:length(samples)])
+seurat6$Sample = substr(seurat6$orig.ident,start = 1, stop = 6)
+seurat6$Sample = paste0(seurat6$Sample,"_2")
+seurat6$Sample[grepl("NSC1", seurat6$orig.ident)] = "NSC1"
+seurat6$Area = substr(seurat6$orig.ident,start = 8, stop = 12)
+seurat6$Area[grepl("CD133", seurat6$orig.ident)] = "CD133"
+seurat6$Age = "GW21"
+seurat6$Age[grepl("HFA567", seurat6$orig.ident)] = "GW13"
+seurat6$Age[grepl("HFA571", seurat6$orig.ident)] = "GW17"
+seurat6$Age[grepl("HFA570", seurat6$orig.ident)] = "GW19"
 ```
 
 ```{r}
@@ -139,6 +193,22 @@ seurat7 = lapply(c(1:length(samples)), function(i){
   ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "German_Cerebellum")
 })
 seurat7 = merge(seurat7[[1]], seurat7[2:length(samples)])
+seurat7$Area = "Cerebellum"
+
+meta = read.table("/media/chang/HDD-12/chang/devel/german_cerebellum/meta.txt", 
+                  sep='\t', row.names = 1)
+meta = meta[unique(seurat7$orig.ident),]
+seurat7$Sample = plyr::mapvalues(seurat7$orig.ident, rownames(meta), meta$V4)
+seurat7$Age = plyr::mapvalues(seurat7$orig.ident, rownames(meta), meta$V6)
+seurat7$Age[grepl("11",seurat7$Age)] = "GW13"
+seurat7$Age[grepl("17",seurat7$Age)] = "GW19"
+seurat7$Age[grepl("20",seurat7$Age)] = "GW22"
+seurat7$Age[grepl("^9",seurat7$Age)] = "GW11"
+seurat7$Age[grepl("CS18",seurat7$Age)] = "GW8"
+seurat7$Age[grepl("CS19",seurat7$Age)] = "GW8.5"
+seurat7$Age[grepl("CS22",seurat7$Age)] = "GW10"
+
+seurat7$Sex = plyr::mapvalues(seurat7$orig.ident, rownames(meta), meta$V5)
 ```
 
 ```{r}
@@ -150,6 +220,10 @@ seurat8 = lapply(c(1:length(samples)), function(i){
   ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Alex")
 })
 seurat8 = merge(seurat8[[1]], seurat8[2:length(samples)])
+seurat8$Sample = "GW23_Alex"
+seurat8$Age = "GW23"
+seurat8$Area = "Midbrain"
+seurat8$Area[grepl("Rhombencephalon", seurat8$orig.ident)] = "Hindbrain"
 ```
 
 ```{r}
@@ -161,6 +235,9 @@ seurat9 = lapply(c(1:length(samples)), function(i){
   ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Brainstem")
 })
 seurat9 = merge(seurat9[[1]], seurat9[2:length(samples)])
+seurat9$Sample = "GW17_BS"
+seurat9$Sample[grepl("GW19", seurat9$orig.ident)] = "GW19_BS"
+seurat9$Area = "Brainstem"
 ```
 
 ```{r}
@@ -172,6 +249,10 @@ seurat10 = lapply(c(1:length(samples)), function(i){
   ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Ziffra")
 })
 seurat10 = merge(seurat10[[1]], seurat10[2:length(samples)])
+seurat10$Sample = seurat10$orig.ident
+seurat10$Area = "Cortex"
+seurat10$Age = "GW17"
+seurat10$Age[seurat10$orig.ident == "Cortex_GW21_Fresh"] = "GW21"
 ```
 
 ```{r}
@@ -183,22 +264,72 @@ seurat11 = lapply(c(1:length(samples)), function(i){
   ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Cortex_MG")
 })
 seurat11 = merge(seurat11[[1]], seurat11[2:length(samples)])
-
-dirs = '/media/chang/HDD-12/chang/devel/chinese_fetal_mg/HRA002150/STARSolo/'
-setwd(dirs)
-dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
-samples = str_sub(dir,1,nchar(dir)-9)
-seurat12 = lapply(c(1:length(samples)), function(i){
-  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Area_MG",
-           doublet = FALSE)
-})
-seurat12 = merge(seurat12[[1]], seurat12[2:length(samples)])
-n_samples = table(seurat12$orig.ident)
-n_samples = n_samples[n_samples >= 100]
-seurat12 = subset(seurat12, subset=orig.ident %in% names(n_samples))
+seurat11$Area = "Cortex"
+seurat11$Sample = seurat11$orig.ident
+seurat11$Sample[grepl("GW16_MG_", seurat11$orig.ident)] = 'GW16_MG_2'
+GW16_MG_1
+seurat11$Age = "GW16"
+seurat11$Age[grepl("GW10", seurat11$orig.ident)] = 'GW10'
+seurat11$Age[grepl("GW12", seurat11$orig.ident)] = 'GW12'
+seurat11$Age[grepl("GW14", seurat11$orig.ident)] = 'GW14'
+seurat11$Age[grepl("GW23", seurat11$orig.ident)] = 'GW23'
+seurat11$Age[grepl("GW8", seurat11$orig.ident)] = 'GW8'
 ```
 
 ```{r}
+dirs = '/media/chang/HDD-12/chang/devel/goncalo/STARSolo/'
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+pcw = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "Goncalo")
+})
+pcw = merge(pcw[[1]], pcw[2:length(samples)])
+pcw$Area = "Forebrain"
+pcw$Sample = pcw$orig.ident
+pcw$Sample[grepl("hF_WK10_2017", pcw$orig.ident)] = "hF_WK10_2017"
+pcw$Sample[grepl("hF_WK10psaNCAM_2017", pcw$orig.ident)] = "hF_WK10psaNCAM_2017"
+pcw$Age = "GW12"
+pcw$Age[grepl("WK8", pcw$orig.ident)] = "GW10"
+pcw$Age[grepl("WK8.5", pcw$orig.ident)] = "GW10.5"
+pcw$Age[grepl("WK9", pcw$orig.ident)] = "GW11"
+```
+
+```{r}
+dirs = '/media/chang/HDD-11/chang/gw18_spcp/'
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+gw18_layer = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW18_layer")
+})
+gw18_layer = merge(gw18_layer[[1]], gw18_layer[2:length(samples)])
+gw18_layer$Area = "Cortex"
+gw18_layer$Age = "GW18"
+
+dirs = '/media/chang/HDD-11/chang/gw21_spcp/'
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+gw21_layer = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW21_layer")
+})
+gw21_layer = merge(gw21_layer[[1]], gw21_layer[2:length(samples)])
+gw21_layer$Area = "Cortex"
+gw21_layer$Age = "GW21"
+
+dirs = "/media/chang/HDD-11/chang/gw20_2/Solo.out/"
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+gw20_2 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW20_2")
+})
+gw20_2 = merge(gw20_2[[1]], gw20_2[2:length(samples)])
+gw20_2$Sample[grepl("GW20_3", gw20_2$orig.ident)] = "GW20_3"
+gw20_2$Area = "Cortex"
+gw20_2$Age = "GW20"
+
 dirs = '/media/chang/HDD-9/chang/April2019NeMoSubmission/GW14/'
 setwd(dirs)
 dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
@@ -207,25 +338,411 @@ gw14 = lapply(c(1:length(samples)), function(i){
   ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW14_Aparna")
 })
 gw14 = merge(gw14[[1]], gw14[2:length(samples)])
-## Dont run 17 cuz IDK
+gw14$Area = "Cortex"
+gw14$Area[grepl("thalamus", gw14$orig.ident)] = "Thalamus"
+gw14$Area[grepl("hypo", gw14$orig.ident)] = "Hypothalamus"
+gw14$Area[grepl("GE", gw14$orig.ident)] = "GE"
+gw14$Age = "GW14"
+
 dirs = '/media/chang/HDD-9/chang/April2019NeMoSubmission/GW17/'
 setwd(dirs)
 dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
 samples = str_sub(dir,1,nchar(dir)-9)
 gw17 = lapply(c(1:length(samples)), function(i){
-  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW14_Aparna")
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW17_Aparna")
 })
 gw17 = merge(gw17[[1]], gw17[2:length(samples)])
-```
+gw17$Area = "Cortex"
+gw17$Age = "GW17"
 
-```{r}
 dirs = '/media/chang/HDD-9/chang/April2020NeMoSubmission/'
 setwd(dirs)
 dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
 samples = str_sub(dir,1,nchar(dir)-9)
+gw19_v3 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW19_V3")
+})
+gw19_v3 = merge(gw19_v3[[1]], gw19_v3[2:length(samples)])
+gw19_v3$orig.ident = paste0("GW19_v3_", gw19_v3$orig.ident)
+gw19_v3$Area = "Cortex"
+gw19_v3$Area[grepl("Thalamus", gw19_v3$orig.ident)] = "Thalamus"
+gw19_v3$Area[grepl("GE", gw19_v3$orig.ident)] = "GE"
+gw19_v3$Age = "GW19"
+gw19_v3 = subset(gw19_v3, subset=orig.ident != "GW19_v3_Temporal")
+
+dirs = "/media/chang/HDD-9/chang/Jan2020_NeMoSubmission/"
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+gw18_2 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW18_2")
+})
+gw18_2 = merge(gw18_2[[1]], gw18_2[2:length(samples)])
+gw18_2$Area = "Cortex"
+gw18_2$Area[grepl("thalamus", gw18_2$orig.ident)] = "Thalamus"
+gw18_2$Area[grepl("hypo", gw18_2$orig.ident)] = "Hypothalamus"
+gw18_2$Area[grepl("GE", gw18_2$orig.ident)] = "GE"
+gw18_2$Area[grepl("hippocampus", gw18_2$orig.ident)] = "Hippocampus"
+gw18_2$Age = "GW18"
+
+dirs = "/media/chang/HDD-9/chang/Oct2020_NeMO/"
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+gw16_v3 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW16_v3")
+})
+gw16_v3 = merge(gw16_v3[[1]], gw16_v3[2:length(samples)])
+gw16_v3$Area = "Cortex"
+gw16_v3$Area[grepl("hypo", gw16_v3$orig.ident)] = "Hypothalamus"
+gw16_v3$Area[grepl("GE", gw16_v3$orig.ident)] = "GE"
+gw16_v3$Age = "GW16"
+
+dirs = "/media/chang/HDD-9/chang/January2019NeMoSubmission/"
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+gw20_twins = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW20_31")
+})
+gw20_twins = merge(gw20_twins[[1]], gw20_twins[2:length(samples)])
+gw20_twins$Sample[grepl("34", gw20_twins$orig.ident)] = "GW20_34"
+gw20_twins$Area = "Cortex"
+gw20_twins$Area[grepl("cerebellum", gw20_twins$orig.ident)] = "Cerebellum"
+gw20_twins$Area[grepl("GE", gw20_twins$orig.ident)] = "GE"
+gw20_twins$Area[grepl("thalamus", gw20_twins$orig.ident)] = "Thalamus"
+gw20_twins$Area[grepl("hypo", gw20_twins$orig.ident)] = "Hypothalamus"
+gw20_twins$Age = "GW20"
+
+dirs = "/media/chang/HDD-9/chang/cs19/"
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+cs19 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "CS19")
+})
+cs19 = merge(cs19[[1]], cs19[2:length(samples)])
+cs19$Area = "Cortex"
+cs19$Area[grepl("hindbrain", cs19$orig.ident)] = "Hindbrain"
+cs19$Area[grepl("midbrain", cs19$orig.ident)] = "Midbrain"
+cs19$Area[grepl("thalamus", cs19$orig.ident)] = "Thalamus"
+cs19$Age = "GW8.5"
+
+dirs = "/media/chang/HDD-9/chang/OctoberNeMoSubmission/raw/"
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+cs22 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "CS22")
+})
+cs22 = merge(cs22[[1]], cs22[2:length(samples)])
+cs22$Area = "Cortex"
+cs22$Area[grepl("hindbrain", cs22$orig.ident)] = "Hindbrain"
+cs22$Area[grepl("midbrain", cs22$orig.ident)] = "Midbrain"
+cs22$Area[grepl("cerebellum", cs22$orig.ident)] = "Cerebellum"
+cs22$Area[grepl("GE", cs22$orig.ident)] = "GE"
+cs22$Area[grepl("thalamus", cs22$orig.ident)] = "Thalamus"
+cs22$Area[grepl("hypo", cs22$orig.ident)] = "Hypothalamus"
+cs22$Age = "GW10"
+
+dirs = "/media/chang/HDD-9/chang/OctoberNeMoSubmission/fastq/Solo.out/"
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+gw25 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW25")
+})
+gw25 = merge(gw25[[1]], gw25[2:length(samples)])
+gw25$Area = "Cortex"
+gw25$Area[grepl("GE", gw25$orig.ident)] = "GE"
+gw25$Area[grepl("thalamus", gw25$orig.ident)] = "Thalamus"
+gw25$Area[grepl("hypo", gw25$orig.ident)] = "Hypothalamus"
+gw25$Age = "GW25"
+
+dirs = "/media/chang/HDD-9/chang/JulyNeMoSubmission/Solo.out/"
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+gw20 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW20")
+})
+gw20 = merge(gw20[[1]], gw20[2:length(samples)])
+gw20$new = gw20$orig.ident
+gw20$new[gw20$orig.ident == "GW20V1"] = "GW20parietal"
+gw20$new[gw20$orig.ident == "GW20somato"] = "GW20PFC"
+gw20$new[gw20$orig.ident == "GW20cingulate_corpus"] = "GW20hypoventalmedial"
+gw20$new[gw20$orig.ident == "GW20claustrum"] = "GW20MGE"
+gw20$new[gw20$orig.ident == "GW20preoptic"] = "GW20caudalthalamus"
+gw20$new[gw20$orig.ident == "GW20motor"] = "GW20CGE"
+gw20$new[gw20$orig.ident == "GW20LGE"] = "GW20dorsalthalamus"
+gw20$new[gw20$orig.ident == "GW20putanum"] = "GW20ventralthalamus"
+
+gw20$new[gw20$orig.ident == "GW20parietal"] = "GW20V1"
+gw20$new[gw20$orig.ident == "GW20PFC"] = "GW20somato"
+gw20$new[gw20$orig.ident == "GW20hypoventalmedial"] = "GW20cingulatecorpus"
+gw20$new[gw20$orig.ident == "GW20MGE"] = "GW20claustrum"
+gw20$new[gw20$orig.ident == "GW20caudalthalamus"] = "GW20preoptic"
+gw20$new[gw20$orig.ident == "GW20CGE"] = "GW20motor"
+gw20$new[gw20$orig.ident == "GW20dorsalthalamus"] = "GW20LGE"
+gw20$new[gw20$orig.ident == "GW20_ventral_thalamus"] = "GW20putanum"
+gw20$orig.ident = gw20$new
+gw20$new = NULL
+
+gw20$Area = "Cortex"
+gw20$Area[grepl("GE", gw20$orig.ident)] = "GE"
+gw20$Area[grepl("thalamus", gw20$orig.ident)] = "Thalamus"
+gw20$Area[grepl("hypo", gw20$orig.ident)] = "Hypothalamus"
+gw20$Age = "GW20"
+
+dirs = "/media/chang/HDD-9/chang/AprilNeMoSubmission/gw/Solo.out/"
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+gw22t = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW22T")
+})
+gw22t = merge(gw22t[[1]], gw22t[2:length(samples)])
+gw22t$Sample[grepl("GW22_", gw22t$orig.ident)] = "GW22"
+gw22t$Area = "Cortex"
+gw22t$Area[grepl("GE", gw22t$orig.ident)] = "GE"
+gw22t$Area[grepl("thalamus", gw22t$orig.ident)] = "Thalamus"
+gw22t$Area[grepl("hypo", gw22t$orig.ident)] = "Hypothalamus"
+gw22t$Age = "GW22"
+
+dirs = "/media/chang/HDD-11/chang/gw20_2018/Solo.out/"
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+gw20_3 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW20_3")
+})
+gw20_3 = merge(gw20_3[[1]], gw20_3[2:length(samples)])
+gw20_3$Sample[grepl("GW20_3", gw20_3$orig.ident)] = "GW20_3"
+gw20_3$orig.ident[gw20_3$orig.ident == "GW20_cingulate"] = "GW20_3_cingulate"
+gw20_3$orig.ident[gw20_3$orig.ident == "GW20_temporal"] = "GW20_3_temporal"
+gw20_3$Area = "Cortex"
+gw20_3$Age = "GW20"
+
+dirs = "/media/chang/HDD-9/chang/AprilNeMoSubmission/cs/Solo.out/"
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+cs20 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "CS20")
+})
+cs20 = merge(cs20[[1]], cs20[2:length(samples)])
+cs20$Area = "Cortex"
+cs20$Area[grepl("midbrain", cs20$orig.ident)] = "Midbrain"
+cs20$Area[grepl("cerebellum", cs20$orig.ident)] = "Cerebellum"
+cs20$Area[grepl("thalamus", cs20$orig.ident)] = "Thalamus"
+cs20$Area[grepl("hypo", cs20$orig.ident)] = "Hypothalamus"
+cs20$Age = "GW9"
+
+dirs = "/media/chang/HDD-9/chang/cellrangeroutputs/GW14_Solo.out/"
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+gw14_2 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW14_2")
+})
+gw14_2 = merge(gw14_2[[1]], gw14_2[2:length(samples)])
+gw14_2$Sample[gw14_2$orig.ident == "GW14"] = "GW14_3"
+gw14_2$Area = "Cortex"
+gw14_2$Area[grepl("GE", gw14_2$orig.ident)] = "GE"
+gw14_2$Age = "GW14"
+
+dirs = "/media/chang/HDD-9/chang/cellrangeroutputs/GW18_Solo.out/"
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+gw18 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW18")
+})
+gw18 = merge(gw18[[1]], gw18[2:length(samples)])
+gw18$Area = "Cortex"
+gw18$Area[grepl("GE", gw18$orig.ident)] = "GE"
+gw18$Area[grepl("thalamus", gw18$orig.ident)] = "Thalamus"
+gw18$Area[grepl("hypo", gw18$orig.ident)] = "Hypothalamus"
+gw18$Area[grepl("hippo", gw18$orig.ident)] = "Hippocampus"
+gw18$Age = "GW18"
+
+dirs = "/media/chang/HDD-9/chang/cellrangeroutputs/GW19_Solo.out/"
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+gw19 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW19")
+})
+gw19 = merge(gw19[[1]], gw19[2:length(samples)])
+gw19$orig.ident[gw19$orig.ident == "GW19_hippocampu"] = "GW19_hippocampus"
+gw19$Area = "Cortex"
+gw19$Area[grepl("GE", gw19$orig.ident)] = "GE"
+gw19$Area[grepl("hippo", gw19$orig.ident)] = "Hippocampus"
+gw19$Age = "GW19"
+
+dirs = "/media/chang/HDD-9/chang/deeper10X_runs/CS20_Solo.out/"
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+cs20_2 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "CS20_2")
+})
+cs20_2 = merge(cs20_2[[1]], cs20_2[2:length(samples)])
+cs20_2$Area = "Cortex"
+cs20_2$Area[grepl("cerebellum", cs20_2$orig.ident)] = "Cerebellum"
+cs20_2$Area[grepl("midbrain", cs20_2$orig.ident)] = "Midbrain"
+cs20_2$Area[grepl("hypo", cs20_2$orig.ident)] = "Hypothalamus"
+cs20_2$Age = "GW9"
+
+dirs = "/media/chang/HDD-9/chang/Jan2018_progressdata_scRNAseq/161228_D00328_0598_AH7JJVBCXY_fastqs/kriegsteina-10x-v2-pool/Solo.out/"
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+cs22_3 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "CS22_3")
+})
+cs22_3 = merge(cs22_3[[1]], cs22_3[2:length(samples)])
+cs22_3$Sample = "CS22_4"
+cs22_3 = subset(cs22_3, subset=orig.ident == "CS22_Thalamus")
+cs22_3 = merge(cs22_3, cs22_4)
+cs22_3$Sample[cs22_3$Sample == "CS22_4"] = "CS22_3"
+cs22_3$Area = "Cortex"
+cs22_3$Area[grepl("cerebellum", cs22_3$orig.ident)] = "Cerebellum"
+cs22_3$Area[grepl("midbrain", cs22_3$orig.ident)] = "Midbrain"
+cs22_3$Area[grepl("GE", cs22_3$orig.ident)] = "GE"
+cs22_3$Area[grepl("hindbrain", cs22_3$orig.ident)] = "Hindbrain"
+cs22_3$Area[grepl("thalamus", cs22_3$orig.ident)] = "Thalamus"
+cs22_3$Area[grepl("hypo", cs22_3$orig.ident)] = "Hypothalamus"
+cs22_3 = subset(cs22_3, subset=Sample == "CS22_3")
+cs22_3$Age = "GW10"
+
+dirs = "/media/chang/HDD-9/chang/Jan2018_progressdata_scRNAseq/170314_D00328_0625_BCABUNANXX_fastqs/Solo.out/"
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
 gw19_2 = lapply(c(1:length(samples)), function(i){
-  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW19_2_Aparna")
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW19_2")
 })
 gw19_2 = merge(gw19_2[[1]], gw19_2[2:length(samples)])
-```
+gw19_2$Area = "Cortex"
+gw19_2$Area[grepl("GE", gw19_2$orig.ident)] = "GE"
+gw19_2$Area[grepl("hippocampus", gw19_2$orig.ident)] = "Hippocampus"
+gw19_2$Area[grepl("thalamus", gw19_2$orig.ident)] = "Thalamus"
+gw19_2$Area[grepl("hypo", gw19_2$orig.ident)] = "Hypothalamus"
+gw19_2$Age = "GW19"
 
+dirs = "/media/chang/HDD-11/chang/gw30/Solo.out/"
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+gw30 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW30")
+})
+gw30 = merge(gw30[[1]], gw30[2:length(samples)])
+gw30$Area = "Cortex"
+gw30$Age = "GW30"
+
+dirs = "/media/chang/HDD-9/chang/deeper10X_runs/CS22_Solo.out/"
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+cs22_4 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "CS22_4")
+})
+cs22_4 = merge(cs22_4[[1]], cs22_4[2:length(samples)])
+cs22_4$Sample[grepl("CS22_2", cs22_4$orig.ident)] = "CS22_2"
+cs22_4$Area = "Cortex"
+cs22_4$Area[grepl("GE", cs22_4$orig.ident)] = "GE"
+cs22_4$Area[grepl("cerebellum", cs22_4$orig.ident)] = "Cerebellum"
+cs22_4$Area[grepl("thalamus", cs22_4$orig.ident)] = "Thalamus"
+cs22_4$Area[grepl("hindbrain", cs22_4$orig.ident)] = "Hindbrain"
+cs22_4$Area[grepl("midbrain", cs22_4$orig.ident)] = "Midbrain"
+cs22_4$Area[grepl("hypo", cs22_4$orig.ident)] = "Hypothalamus"
+cs22_4$Age = "GW10"
+cs22_4 = subset(cs22_4, subset=Sample == "CS22_4")
+cs22_3 = merge(cs22_3, cs22_4)
+rm(cs22_4)  
+
+save.image("/media/chang/HDD-9/chang/samples.RData")
+```
+```
+dirs = "/media/chang/HDD-9/chang/Jan2018_progressdata_scRNAseq/170414_D00328_0641_ACAUFRANXX/Solo.out/"
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+gw18_3 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW18_3")
+})
+gw18_3 = merge(gw18_3[[1]], gw18_3[2:length(samples)])
+gw18_3$Area = "Cortex"
+gw18_3$Area[grepl("GE", gw18_3$orig.ident)] = "GE"
+gw18_3$Area[grepl("hippocampus", gw18_3$orig.ident)] = "Hippocampus"
+gw18_3$Area[grepl("thalamus", gw18_3$orig.ident)] = "Thalamus"
+gw18_3$Area[grepl("hypo", gw18_3$orig.ident)] = "Hypothalamus"
+
+dirs = "/media/chang/HDD-9/chang/Jan2018_progressdata_scRNAseq/170627_D00328_0666_ACBBP4ANXX_fastqs/Solo.out/"
+setwd(dirs)
+dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+samples = str_sub(dir,1,nchar(dir)-9)
+gw18_4 = lapply(c(1:length(samples)), function(i){
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW18_4")
+})
+gw18_4 = merge(gw18_4[[1]], gw18_4[2:length(samples)])
+gw18_4$Area = "Cortex"
+gw18_4$Area[grepl("GE", gw18_4$orig.ident)] = "GE"
+gw18_4$Area[grepl("hippocampus", gw18_4$orig.ident)] = "Hippocampus"
+gw18_4$Area[grepl("thalamus", gw18_4$orig.ident)] = "Thalamus"
+gw18_4$Area[grepl("hypo", gw18_4$orig.ident)] = "Hypothalamus"
+```
+```{r}
+merged = merge(seurat, c(seurat2,seurat3,seurat4,seurat5,seurat6,seurat7,seurat8,
+                         seurat9,seurat10,seurat11,pcw))
+rm(seurat);rm(seurat2);rm(seurat3);rm(seurat4);rm(seurat5);rm(seurat6);rm(seurat7);rm(seurat8);rm(seurat9);rm(seurat10);rm(seurat11);rm(pcw);gc()
+
+merged = merge(merged,c(cs19,cs20,cs20_2))
+rm(cs19);rm(cs20);rm(cs20_2);gc()
+
+merged2 = merge(cs22,c(cs22_3,gw14,gw14_2,gw16_v3))
+rm(cs22);rm(cs22_3);rm(gw14);rm(gw14_2);rm(gw16_v3);gc()
+
+merged2 = merge(merged2,c(gw17,gw18,gw18_2,gw18_layer))
+rm(gw17);rm(gw18);rm(gw18_2);rm(gw18_layer);gc()
+
+merged2 = merge(merged2,c(gw19,gw19_2,gw19_v3))
+rm(gw19);rm(gw19_2);rm(gw19_v3);gc()
+
+merged3 = merge(gw20,c(gw20_2,gw20_3,gw20_twins,gw21_layer,gw22t,gw25,gw30))
+rm(gw20);rm(gw20_2);rm(gw20_3);rm(gw20_twins);rm(gw21_layer);rm(gw22t);rm(gw25);rm(gw30);gc()
+
+saveRDS(list(merged, merged2,merged3), file='/media/chang/HDD-9/chang/merged.rds')
+
+tmp = as.SingleCellExperiment(merged)
+merged = merge(merged, c(merged2,merged3))
+
+merged@assays$RNA@data <- shifted_log_transform(merged@assays$RNA@counts, 
+                                                overdispersion = 0.1)
+merged = FindVariableFeatures(merged, nfeatures = 3000)
+VariableFeatures(merged) = VariableFeatures(merged)[!grepl("MT-",VariableFeatures(merged))]
+VariableFeatures(merged) = VariableFeatures(merged)[!grepl("RPL",VariableFeatures(merged))]
+VariableFeatures(merged) = VariableFeatures(merged)[!grepl("RPS",VariableFeatures(merged))]
+
+X_center <- rowMeans(merged@assays$RNA@data[VariableFeatures(merged),])
+X_scale <- proxyC::rowSds(merged@assays$RNA@data[VariableFeatures(merged),])
+retval <- irlba::irlba(A = t(merged@assays$RNA@data[VariableFeatures(merged),]), 
+                       nv = 50, center = X_center, scale = X_scale)
+retval$x <- retval$u %*% diag(retval$d)
+merged[['pca']] = CreateDimReducObject(retval$x, key='pca_')
+rownames(merged[["pca"]]@cell.embeddings) <- Cells(merged)
+
+#merged = FindNeighbors(merged, dims=1:50)
+#merged = FindClusters(merged, resolution = .1)
+merged = RunUMAP(merged, dims=1:50)
+merged = FindNeighbors(merged, dims=1:2, reduction = 'umap')
+merged = FindClusters(merged, resolution = .1)
+test = FindMarkers(merged, ident.1 = 30, only.pos = T, min.diff.pct = .5)
+test = wilcoxauc(merged)
+
+DimPlot(merged, group.by = 'orig.ident') + NoAxes() + NoLegend()
+FeaturePlot(merged, features = 'XIST', order=T,max.cutoff = 'q99') + NoAxes() + scale_color_viridis()
+
+```
