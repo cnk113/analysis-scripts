@@ -13,22 +13,46 @@ library(presto)
 library(viridis)
 library(stringr)
 library(transformGamPoi)
+library(FastCAR)
+library(Matrix)
 
 path = '/media/chang/HDD-12/chang/devel'
 ```
 
 ```{r}
-# data.dir should be Solo.out dir
-ReadSTAR <- function(data.dir, proj = "SeuratObject", feats = 500, counts = 1000, 
-                     sample="Sample", doublet=TRUE, chemistry='v2') {
+ReadSTARaw <- function(data.dir, proj = "SeuratObject", feats = 500, 
+                     counts = 1000, sample="Sample", doublet=TRUE) {
   data.dir.genefull = paste0(data.dir, "GeneFull_Ex50pAS/raw")
   mtx = file.path(data.dir.genefull, "UniqueAndMult-EM.mtx")
   cells = file.path(data.dir.genefull, "barcodes.tsv")
   features = file.path(data.dir.genefull, "features.tsv")
-  seurat = CreateSeuratObject(ReadMtx(mtx = mtx, cells = cells, features = features), 
-         project = proj, min.features = feats)
-  seurat = subset(seurat, subset=nCount_RNA >= counts)
+  raw = ReadMtx(mtx = mtx, cells = cells, features = features)
+}
+merged_seurat$log10GenesPerUMI <- log10(merged_seurat$nFeature_RNA) / log10(merged_seurat$nCount_RNA)
+# data.dir should be Solo.out dir
+ReadSTAR <- function(data.dir, proj = "SeuratObject", feats = 500, 
+                     counts = 1000, sample="Sample", doublet=TRUE) {
+  data.dir.genefull = paste0(data.dir, "GeneFull_Ex50pAS/raw")
+  mtx = file.path(data.dir.genefull, "UniqueAndMult-EM.mtx")
+  cells = file.path(data.dir.genefull, "barcodes.tsv")
+  features = file.path(data.dir.genefull, "features.tsv")
+  raw = ReadMtx(mtx = mtx, cells = cells, features = features)
+  seurat = subset(CreateSeuratObject(raw, project = proj, min.features = feats),
+                  subset=nCount_RNA >= counts)
+  
+  ambProfile = describe.ambient.RNA.sequence(fullMatrix = raw, 
+                                             start = 10, 
+                                             stop = 200, 
+                                             by = 10, 
+                                             contaminationChanceCutoff = 0.05)
+  emptyDropletCutoff = recommend.empty.cutoff(ambProfile)
+  ambientProfile = determine.background.to.remove(raw, emptyDropletCutoff, .05)
+  seurat = subset(CreateSeuratObject(remove.background(seurat@assays$RNA@counts, ambientProfile),
+                                     project = proj, min.features = feats), subset=nCount_RNA >= 800)
+  
   seurat = as.Seurat(cxds_bcds_hybrid(as.SingleCellExperiment(seurat)))
+  seurat$ident = NULL
+  
   data.dir.velo = paste0(data.dir, "/Velocyto/raw")
   cells = file.path(data.dir.velo, "barcodes.tsv")
   features = file.path(data.dir.velo, "features.tsv")
@@ -39,10 +63,27 @@ ReadSTAR <- function(data.dir, proj = "SeuratObject", feats = 500, counts = 1000
   unspliced = ReadMtx(mtx = unspliced, cells = cells, features = features)
   ambi = ReadMtx(mtx = ambi, cells = cells, features = features)
   spliced = spliced + ambi
-  spliced = spliced[,colnames(seurat)]
-  unspliced = unspliced[,colnames(seurat)]
-  seurat[['spliced']] = CreateAssayObject(spliced)
-  seurat[['unspliced']] = CreateAssayObject(unspliced)
+  
+  ambProfile = describe.ambient.RNA.sequence(fullMatrix = spliced, 
+                                             start = 10, 
+                                             stop = 200, 
+                                             by = 10, 
+                                             contaminationChanceCutoff = 0.05)
+  emptyDropletCutoff = recommend.empty.cutoff(ambProfile)
+  ambientProfile = determine.background.to.remove(spliced, emptyDropletCutoff, .05)
+  seurat[['spliced']] = CreateAssayObject(remove.background(spliced[,colnames(seurat)], 
+                                                            ambientProfile))
+  
+  ambProfile = describe.ambient.RNA.sequence(fullMatrix = unspliced, 
+                                             start = 10, 
+                                             stop = 200, 
+                                             by = 10, 
+                                             contaminationChanceCutoff = 0.05)
+  emptyDropletCutoff = recommend.empty.cutoff(ambProfile)
+  ambientProfile = determine.background.to.remove(unspliced, emptyDropletCutoff, .05)
+  seurat[['unspliced']] = CreateAssayObject(remove.background(unspliced[,colnames(seurat)], 
+                                                            ambientProfile))  
+  
   seurat[['percent.mt']] = PercentageFeatureSet(seurat, pattern = "MT-",assay = 'RNA')
   if(doublet == TRUE){
     n_cells = dim(seurat)[2]
@@ -60,7 +101,6 @@ ReadSTAR <- function(data.dir, proj = "SeuratObject", feats = 500, counts = 1000
   }
   seurat$Sample = sample
   #seurat$orig.ident = paste0(sample, "_", seurat$orig.ident)
-  seurat$Chemistry = chemistry
   return(seurat)
 }
 ```
@@ -267,7 +307,6 @@ seurat11 = merge(seurat11[[1]], seurat11[2:length(samples)])
 seurat11$Area = "Cortex"
 seurat11$Sample = seurat11$orig.ident
 seurat11$Sample[grepl("GW16_MG_", seurat11$orig.ident)] = 'GW16_MG_2'
-GW16_MG_1
 seurat11$Age = "GW16"
 seurat11$Age[grepl("GW10", seurat11$orig.ident)] = 'GW10'
 seurat11$Age[grepl("GW12", seurat11$orig.ident)] = 'GW12'
@@ -579,6 +618,7 @@ gw19$Area = "Cortex"
 gw19$Area[grepl("GE", gw19$orig.ident)] = "GE"
 gw19$Area[grepl("hippo", gw19$orig.ident)] = "Hippocampus"
 gw19$Age = "GW19"
+gw19$Sample[gw19$orig.ident == "GW19"] = "GW19_2"
 
 dirs = "/media/chang/HDD-9/chang/deeper10X_runs/CS20_Solo.out/"
 setwd(dirs)
@@ -611,7 +651,7 @@ cs22_3$Area[grepl("cerebellum", cs22_3$orig.ident)] = "Cerebellum"
 cs22_3$Area[grepl("midbrain", cs22_3$orig.ident)] = "Midbrain"
 cs22_3$Area[grepl("GE", cs22_3$orig.ident)] = "GE"
 cs22_3$Area[grepl("hindbrain", cs22_3$orig.ident)] = "Hindbrain"
-cs22_3$Area[grepl("thalamus", cs22_3$orig.ident)] = "Thalamus"
+cs22_3$Area[grepl("Thalamus", cs22_3$orig.ident)] = "Thalamus"
 cs22_3$Area[grepl("hypo", cs22_3$orig.ident)] = "Hypothalamus"
 cs22_3 = subset(cs22_3, subset=Sample == "CS22_3")
 cs22_3$Age = "GW10"
@@ -621,7 +661,7 @@ setwd(dirs)
 dir = list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
 samples = str_sub(dir,1,nchar(dir)-9)
 gw19_2 = lapply(c(1:length(samples)), function(i){
-  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW19_2")
+  ReadSTAR(paste0(dirs,dir[[i]],"/"), proj = samples[[i]], sample = "GW19")
 })
 gw19_2 = merge(gw19_2[[1]], gw19_2[2:length(samples)])
 gw19_2$Area = "Cortex"
@@ -630,6 +670,11 @@ gw19_2$Area[grepl("hippocampus", gw19_2$orig.ident)] = "Hippocampus"
 gw19_2$Area[grepl("thalamus", gw19_2$orig.ident)] = "Thalamus"
 gw19_2$Area[grepl("hypo", gw19_2$orig.ident)] = "Hypothalamus"
 gw19_2$Age = "GW19"
+gw19_2 = subset(gw19_2, subset=orig.ident %in% c("GW19_hypothalamus","GW19_M1_CP",
+                                                 "GW19_Temp_all","GW19_thalamus",
+                                                 "GW19_V1_CP"))
+gw19 = merge(gw19, gw19_2)
+rm(gw19_2)
 
 dirs = "/media/chang/HDD-11/chang/gw30/Solo.out/"
 setwd(dirs)
@@ -640,6 +685,7 @@ gw30 = lapply(c(1:length(samples)), function(i){
 })
 gw30 = merge(gw30[[1]], gw30[2:length(samples)])
 gw30$Area = "Cortex"
+gw30$Area[gw30$orig.ident == 'GW30_GE'] = "GE"
 gw30$Age = "GW30"
 
 dirs = "/media/chang/HDD-9/chang/deeper10X_runs/CS22_Solo.out/"
@@ -662,6 +708,7 @@ cs22_4$Age = "GW10"
 cs22_4 = subset(cs22_4, subset=Sample == "CS22_4")
 cs22_3 = merge(cs22_3, cs22_4)
 rm(cs22_4)  
+cs22_3$Area[grepl("Thalamus", cs22_3$orig.ident)] = "Thalamus"
 
 save.image("/media/chang/HDD-9/chang/samples.RData")
 ```
@@ -696,20 +743,11 @@ gw18_4$Area[grepl("hypo", gw18_4$orig.ident)] = "Hypothalamus"
 ```
 ```{r}
 merged = merge(seurat, c(seurat2,seurat3,seurat4,seurat5,seurat6,seurat7,seurat8,
-                         seurat9,seurat10,seurat11,pcw))
-rm(seurat);rm(seurat2);rm(seurat3);rm(seurat4);rm(seurat5);rm(seurat6);rm(seurat7);rm(seurat8);rm(seurat9);rm(seurat10);rm(seurat11);rm(pcw);gc()
+                         seurat9,seurat10,seurat11,pcw,cs19,cs20,cs20_2))
+rm(seurat);rm(seurat2);rm(seurat3);rm(seurat4);rm(seurat5);rm(seurat6);rm(seurat7);rm(seurat8);rm(seurat9);rm(seurat10);rm(seurat11);rm(pcw);rm(cs19);rm(cs20);rm(cs20_2);gc()
 
-merged = merge(merged,c(cs19,cs20,cs20_2))
-rm(cs19);rm(cs20);rm(cs20_2);gc()
-
-merged2 = merge(cs22,c(cs22_3,gw14,gw14_2,gw16_v3))
-rm(cs22);rm(cs22_3);rm(gw14);rm(gw14_2);rm(gw16_v3);gc()
-
-merged2 = merge(merged2,c(gw17,gw18,gw18_2,gw18_layer))
-rm(gw17);rm(gw18);rm(gw18_2);rm(gw18_layer);gc()
-
-merged2 = merge(merged2,c(gw19,gw19_2,gw19_v3))
-rm(gw19);rm(gw19_2);rm(gw19_v3);gc()
+merged2 = merge(cs22,c(cs22_3,gw14,gw14_2,gw16_v3,gw17,gw18,gw18_2,gw18_layer,gw19,gw19_v3))
+rm(cs22);rm(cs22_3);rm(gw14);rm(gw14_2);rm(gw16_v3);rm(gw17);rm(gw18);rm(gw18_2);rm(gw18_layer);rm(gw19);rm(gw19_v3);gc()
 
 merged3 = merge(gw20,c(gw20_2,gw20_3,gw20_twins,gw21_layer,gw22t,gw25,gw30))
 rm(gw20);rm(gw20_2);rm(gw20_3);rm(gw20_twins);rm(gw21_layer);rm(gw22t);rm(gw25);rm(gw30);gc()
@@ -718,31 +756,92 @@ saveRDS(list(merged, merged2,merged3), file='/media/chang/HDD-9/chang/merged.rds
 
 tmp = as.SingleCellExperiment(merged)
 merged = merge(merged, c(merged2,merged3))
+```
 
-merged@assays$RNA@data <- shifted_log_transform(merged@assays$RNA@counts, 
-                                                overdispersion = 0.1)
-merged = FindVariableFeatures(merged, nfeatures = 3000)
-VariableFeatures(merged) = VariableFeatures(merged)[!grepl("MT-",VariableFeatures(merged))]
-VariableFeatures(merged) = VariableFeatures(merged)[!grepl("RPL",VariableFeatures(merged))]
-VariableFeatures(merged) = VariableFeatures(merged)[!grepl("RPS",VariableFeatures(merged))]
+```{r}
+thal = subset(merged, subset=Area=="Thalamus")
+thal2 = subset(merged2, subset=Area=="Thalamus")
+thal3 = subset(merged3, subset=Area=="Thalamus")
+thal = merge(thal, c(thal2, thal3))
+saveRDS(thal,"/media/chang/HDD-9/chang/thal_raw.rds")
 
-X_center <- rowMeans(merged@assays$RNA@data[VariableFeatures(merged),])
-X_scale <- proxyC::rowSds(merged@assays$RNA@data[VariableFeatures(merged),])
-retval <- irlba::irlba(A = t(merged@assays$RNA@data[VariableFeatures(merged),]), 
-                       nv = 50, center = X_center, scale = X_scale)
-retval$x <- retval$u %*% diag(retval$d)
-merged[['pca']] = CreateDimReducObject(retval$x, key='pca_')
-rownames(merged[["pca"]]@cell.embeddings) <- Cells(merged)
+mtx = thal@assays$RNA@counts[!grepl("MT-",rownames(thal@assays$RNA@counts)),]
+mtx = mtx[!grepl("RPS",rownames(mtx)),]
+mtx = mtx[!grepl("RPL",rownames(mtx)),]
+mtx = mtx[!grepl("ENSG",rownames(mtx)),]
+mtx = mtx[!grepl("MIR",rownames(mtx)),]
+mtx = mtx[!grepl("LINC",rownames(mtx)),]
+mtx = mtx[!grepl("FOS",rownames(mtx)),]
+mtx = mtx[!grepl("JUN",rownames(mtx)),]
+mtx = mtx[!grepl("HSPA",rownames(mtx)),]
+mtx = mtx[!grepl("MALAT1",rownames(mtx)),]
+mtx = mtx[!grepl("-AS",rownames(mtx)),]
 
-#merged = FindNeighbors(merged, dims=1:50)
-#merged = FindClusters(merged, resolution = .1)
-merged = RunUMAP(merged, dims=1:50)
-merged = FindNeighbors(merged, dims=1:2, reduction = 'umap')
-merged = FindClusters(merged, resolution = .1)
-test = FindMarkers(merged, ident.1 = 30, only.pos = T, min.diff.pct = .5)
-test = wilcoxauc(merged)
+thal2 = CreateSeuratObject(mtx, meta.data = thal@meta.data)
+thal2 = subset(thal2, subset=nFeature_RNA >= 500 & nCount_RNA >= 800)
+saveRDS(thal2,"/media/chang/HDD-9/chang/thal_raw_filtered_genes.rds")
 
-DimPlot(merged, group.by = 'orig.ident') + NoAxes() + NoLegend()
-FeaturePlot(merged, features = 'XIST', order=T,max.cutoff = 'q99') + NoAxes() + scale_color_viridis()
+######
+
+ge = subset(merged, subset=Area %in% c("GE","LGE","CGE","MGE"))
+
+ge2 = subset(merged2, subset=Area=="GE")
+unique(merged2$orig.ident[grepl("ar", merged2$orig.ident)])
+cells = colnames(merged2)[grepl("ar", merged2$orig.ident)]
+par2 = subset(merged2, cells=cells)
+
+ge3 = subset(merged3, subset=Area=="GE")
+unique(merged3$orig.ident[grepl("ar", merged3$orig.ident)])
+cells = colnames(merged3)[grepl("ar", merged3$orig.ident)]
+par3 = subset(merged3, cells=cells)
+par3 = subset(par3, subset=orig.ident=="GW25_pulminarthal", invert=T)
+
+ge = merge(ge, c(ge2, par2, ge3, par3))
+rm(ge2);rm(ge3);rm(par2);rm(par3);gc()
+
+mtx = ge@assays$RNA@counts[!grepl("MT-",rownames(ge@assays$RNA@counts)),]
+mtx = mtx[!grepl("RPS",rownames(mtx)),]
+mtx = mtx[!grepl("RPL",rownames(mtx)),]
+mtx = mtx[!grepl("ENSG",rownames(mtx)),]
+mtx = mtx[!grepl("MIR",rownames(mtx)),]
+mtx = mtx[!grepl("LINC",rownames(mtx)),]
+mtx = mtx[!grepl("FOS",rownames(mtx)),]
+mtx = mtx[!grepl("JUN",rownames(mtx)),]
+mtx = mtx[!grepl("HSPA",rownames(mtx)),]
+mtx = mtx[!grepl("MALAT1",rownames(mtx)),]
+mtx = mtx[!grepl("-AS",rownames(mtx)),]
+
+ge2 = CreateSeuratObject(mtx, meta.data = ge@meta.data)
+ge3 = CreateSeuratObject(ge2@assays$RNA@counts)
+ge2$nCount_RNA = ge3$nCount_RNA
+ge2$nFeature_RNA = ge3$nFeature_RNA
+rm(ge3);gc()
+ge2 = subset(ge2, subset=nFeature_RNA >= 500 & nCount_RNA >= 800);gc()
+saveRDS(ge2,"/media/chang/HDD-9/chang/ge_raw_filtered_genes.rds")
+
+
+```
+
+```{r}
+mid = subset(merged[[1]], subset=Area=="Midbrain")
+mid2 = subset(merged[[2]], subset=Area=="Midbrain")
+mid = merge(mid, mid2)
+saveRDS(mid,"/media/chang/HDD-9/chang/mid_raw.rds")
+
+mtx = mid@assays$RNA@counts[!grepl("MT-",rownames(mid@assays$RNA@counts)),]
+mtx = mtx[!grepl("RPS",rownames(mtx)),]
+mtx = mtx[!grepl("RPL",rownames(mtx)),]
+mtx = mtx[!grepl("ENSG",rownames(mtx)),]
+mtx = mtx[!grepl("MIR",rownames(mtx)),]
+mtx = mtx[!grepl("LINC",rownames(mtx)),]
+mtx = mtx[!grepl("FOS",rownames(mtx)),]
+mtx = mtx[!grepl("JUN",rownames(mtx)),]
+mtx = mtx[!grepl("HSPA",rownames(mtx)),]
+mtx = mtx[!grepl("MALAT1",rownames(mtx)),]
+mtx = mtx[!grepl("-AS",rownames(mtx)),]
+
+mid2 = CreateSeuratObject(mtx, meta.data = mid@meta.data)
+mid2 = subset(mid2, subset=nFeature_RNA >= 500 & nCount_RNA >= 800)
+saveRDS(mid2,"/media/chang/HDD-9/chang/mid_raw_filtered_genes.rds")
 
 ```

@@ -1,0 +1,213 @@
+---
+title: "STICR"
+output: html_notebook
+---
+```{r}
+library(Seurat)
+library(dittoSeq)
+library(SeuratWrappers)
+library(scCustomize)
+library(scds)
+library(harmony)
+library(presto)
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+library(ggplotify)
+library(scINSIGHT)
+```
+
+```{r}
+# data.dir should be Solo.out dir
+ReadSTAR <- function(data.dir, proj = "SeuratObject", feats = 1000, sticr="") {
+  print(proj)
+  data.dir.genefull = paste0(data.dir, "/GeneFull_Ex50pAS/raw")
+  mtx = file.path(data.dir.genefull, "UniqueAndMult-EM.mtx")
+  cells = file.path(data.dir.genefull, "barcodes.tsv")
+  features = file.path(data.dir.genefull, "features.tsv")
+  seurat = as.Seurat(cxds_bcds_hybrid(as.SingleCellExperiment(
+    CreateSeuratObject(ReadMtx(mtx = mtx, cells = cells, features = features), 
+         project = proj, min.features = feats))))
+  print("Adding Velocity")
+  data.dir.velo = paste0(data.dir, "/Velocyto/raw")
+  cells = file.path(data.dir.velo, "barcodes.tsv")
+  features = file.path(data.dir.velo, "features.tsv")
+  spliced = file.path(data.dir.velo, "spliced.mtx")
+  unspliced = file.path(data.dir.velo, "unspliced.mtx")
+  ambi = file.path(data.dir.velo, "ambiguous.mtx")
+  spliced = ReadMtx(mtx = spliced, cells = cells, features = features)
+  unspliced = ReadMtx(mtx = unspliced, cells = cells, features = features)
+  ambi = ReadMtx(mtx = ambi, cells = cells, features = features)
+  spliced = spliced + ambi
+  spliced = spliced[,colnames(seurat)]
+  unspliced = unspliced[,colnames(seurat)]
+  seurat[['spliced']] = CreateAssayObject(spliced)
+  seurat[['unspliced']] = CreateAssayObject(unspliced)
+  print("Filtering non clones")
+  if(sticr != ""){
+    sticr = read.csv(sticr,row.names = 1)
+    seurat = subset(seurat, cells=rownames(sticr))
+    sticr = sticr[colnames(seurat),]
+    seurat$clone = sticr$sgRNAs
+    seurat$n_clone = sticr$n_sgRNAs
+  }
+  seurat[['percent.mt']] = PercentageFeatureSet(seurat, pattern = "MT-",assay = 'RNA')
+  seurat = subset(seurat, subset=percent.mt <= 20 & hybrid_score < 1)
+  return(seurat)
+}
+```
+
+```{r}
+seuratToH5AD <- function(seuratObj, h5ad_output, pca=TRUE, umap=FALSE){
+  Sys.setenv(RETICULATE_PYTHON = "/home/chang/miniconda3/envs/venv/bin/python")
+  library(reticulate)
+  #use_condaenv('venv')
+  library(Matrix)
+  writeMM(t(seuratObj@assays$RNA@counts), file='combined.mtx')
+  #writeMM(t(seuratObj@assays$SCT@data), file='sct.mtx')
+  writeMM(t(seuratObj@assays$spliced@counts), file='spliced.mtx')
+  writeMM(t(seuratObj@assays$unspliced@counts), file='unspliced.mtx')
+  write.csv(rownames(seuratObj@assays$spliced@counts), file = "genes.csv", row.names = FALSE)
+  if(umap == TRUE){
+  	write.csv(seuratObj@reductions$umap@cell.embeddings, file = "umap.csv", row.names = FALSE)
+  }
+  if(pca == TRUE){
+	  write.csv(seuratObj@reductions$pca@cell.embeddings, file = "pca.csv", row.names = FALSE)
+  }
+  write.csv(colnames(seuratObj@assays$spliced@counts), file = "cells.csv", row.names = FALSE)
+  write.csv(seuratObj@meta.data, file = "meta.csv", row.names = FALSE)
+  source_python('/home/chang/build_combined.py')
+  build(h5ad_output, pca = pca, umap = umap)
+  file.remove('combined.mtx')
+  file.remove('spliced.mtx')
+  file.remove('unspliced.mtx')
+  file.remove('genes.csv')
+  file.remove('cells.csv')
+  file.remove('meta.csv')
+  #file.remove("sct.csv")
+  if(umap == TRUE){
+  	file.remove('umap.csv')
+  }
+  if(pca == TRUE){
+	  file.remove('pca.csv')
+  }
+}
+```
+
+```{r}
+star = list("/media/chang/HDD-8/chang/cloneseq/fastqs/GW15_rep1/GW15_rep1_tube1/GW15_rep1_tube1_Solo.out",
+            "/media/chang/HDD-8/chang/cloneseq/fastqs/GW15_rep1/GW15_rep1_tube2/GW15_rep1_tube2_Solo.out",
+            "/media/chang/HDD-8/chang/cloneseq/fastqs/GW15_rep1/GW15_rep1_tube3/GW15_rep1_tube3_Solo.out",
+            "/media/chang/HDD-8/chang/cloneseq/fastqs/GW15_rep2/GW15_rep2_tube1/GW15_rep2_tube1_Solo.out",
+            "/media/chang/HDD-8/chang/cloneseq/fastqs/GW15_rep2/GW15_rep2_tube2/GW15_rep2_tube2_Solo.out",
+            "/media/chang/HDD-8/chang/cloneseq/fastqs/GW15_rep2/GW15_rep2_tube3/GW15_rep2_tube3_Solo.out",
+            "/media/chang/HDD-8/chang/cloneseq/fastqs/GW15_rep3/GW15_rep3_Solo.out",
+            "/media/chang/HDD-8/chang/cloneseq/fastqs/GW15_rep4/GW15_rep4_Solo.out",
+            "/media/chang/HDD-8/chang/cloneseq/fastqs/GW15_rep5/GW15_rep5_Solo.out",
+            "/media/chang/HDD-8/chang/cloneseq/fastqs/GW18_MGE/GW18_MGE_Solo.out",
+            "/media/chang/HDD-8/chang/cloneseq/fastqs/GW18_PFC/GW18_PFC_tube1/GW18_PFC_tube1_Solo.out",
+            "/media/chang/HDD-8/chang/cloneseq/fastqs/GW18_PFC/GW18_PFC_tube2/GW18_PFC_tube2_Solo.out",
+            "/media/chang/HDD-8/chang/cloneseq/fastqs/GW18_V1/GW18_V1_tube1/GW18_V1_tube1_Solo.out",
+            "/media/chang/HDD-8/chang/cloneseq/fastqs/GW18_V1/GW18_V1_tube2/GW18_V1_tube2_Solo.out",
+            "/media/chang/HDD-8/chang/cloneseq/fastqs/GW18_V1/GW18_V1_tube3/GW18_V1_tube3_Solo.out")
+names = list("GW15_rep1_tube1",'GW15_rep1_tube2','GW15_rep1_tube3','GW15_rep2_tube1','GW15_rep2_tube2',
+             'GW15_rep2_tube3',"GW15_rep3","GW15_rep4","GW15_rep5","GW18_MGE","GW18_PFC_tube1",
+             "GW18_PFC_tube2","GW18_V1_tube1","GW18_V1_tube2","GW18_V1_tube3")
+sticr = list("/media/chang/HDD-8/chang/cloneseq/RND_STICR_GEO/csv/GW15_6_Rep1_Tube1.csv",
+             "/media/chang/HDD-8/chang/cloneseq/RND_STICR_GEO/csv/GW15_6_Rep1_Tube2.csv",
+             "/media/chang/HDD-8/chang/cloneseq/RND_STICR_GEO/csv/GW15_6_Rep1_Tube3.csv",
+             "/media/chang/HDD-8/chang/cloneseq/RND_STICR_GEO/csv/GW15_Rep2_Tube1.csv",
+             "/media/chang/HDD-8/chang/cloneseq/RND_STICR_GEO/csv/GW15_Rep2_Tube2.csv",
+             "/media/chang/HDD-8/chang/cloneseq/RND_STICR_GEO/csv/GW15_Rep2_Tube3.csv",
+             "/media/chang/HDD-8/chang/cloneseq/RND_STICR_GEO/csv/GW15_Rep3.csv",
+             "/media/chang/HDD-8/chang/cloneseq/RND_STICR_GEO/csv/GW15_Rep4.csv",
+             "/media/chang/HDD-8/chang/cloneseq/RND_STICR_GEO/csv/GW15_Rep5.csv",
+             "/media/chang/HDD-8/chang/cloneseq/RND_STICR_GEO/csv/GW18_MGE.csv",
+             "/media/chang/HDD-8/chang/cloneseq/RND_STICR_GEO/csv/GW18_PFC_tube1.csv",
+             "/media/chang/HDD-8/chang/cloneseq/RND_STICR_GEO/csv/GW18_PFC_tube2.csv",
+             "/media/chang/HDD-8/chang/cloneseq/RND_STICR_GEO/csv/GW18_V1_Tube1.csv",
+             "/media/chang/HDD-8/chang/cloneseq/RND_STICR_GEO/csv/GW18_V1_Tube2.csv",
+             "/media/chang/HDD-8/chang/cloneseq/RND_STICR_GEO/csv/GW18_V1_Tube3.csv")
+```
+
+```{r}
+gw = lapply(1:length(names), function(i){
+  ReadSTAR(as.character(star[i]),proj = as.character(names[i]), sticr = as.character(sticr[i]))
+})
+
+gw15_rep1 = merge(gw[[1]], gw[2:3])
+gw15_rep2 = merge(gw[[4]], gw[5:6])
+gw15_rep3 = gw[[7]]
+gw15_rep4 = gw[[8]]
+gw15_rep5 = gw[[9]]
+gw18_mge = gw[[10]]
+gw18_pfc = merge(gw[[11]], gw[[12]])
+gw18_v1 = merge(gw[[13]], gw[14:15])
+rm(gw);gc()
+
+gw15_rep1$Sample = "GW15_rep1"
+gw15_rep2$Sample = "GW15_rep2"
+gw15_rep3$Sample = "GW15_rep3"
+gw15_rep4$Sample = "GW15_rep4"
+gw15_rep5$Sample = "GW15_rep5"
+gw18_mge$Sample = "GW18_MGE"
+gw18_pfc$Sample = "GW18_PFC"
+gw18_v1$Sample = "GW18_V1"
+
+gw = list(gw15_rep1,gw15_rep2,gw15_rep3,gw15_rep4,gw15_rep5,gw18_mge,gw18_pfc,gw18_v1)
+gw = lapply(gw, function(x){
+  idx = data.frame(unique(x$clone))
+  idx$value = paste0("C",rownames(idx))
+  colnames(idx) = c("clone","short_clone")
+  idx = inner_join(x@meta.data, idx, by=c("clone"))
+  rownames(idx) = rownames(x@meta.data)
+  x@meta.data = idx
+  x = SCTransform(x,n_genes=NULL,ncells=NULL,vst.flavor='v2')
+  x = RunPCA(x)
+  x
+})
+
+rm(gw15_rep1)
+rm(gw15_rep2)
+rm(gw15_rep3)
+rm(gw15_rep4)
+rm(gw15_rep5)
+rm(gw18_mge)
+rm(gw18_pfc)
+rm(gw18_v1)
+gc()
+save.image("/media/chang/HDD-8/chang/cloneseq/RData")
+```
+
+```{r}
+for(i in 1:8){
+  outfile = paste0("/media/chang/HDD-8/chang/cloneseq/", gw[[i]]$Sample[1], ".h5ad")
+  #seuratToH5AD(gw[[i]], outfile)
+}
+```
+
+```{r}
+gw = lapply(gw, function(x){
+  x = subset(x, subset=hybrid_score < 1)
+  x = SCTransform(x,n_genes=NULL,ncells=NULL,vst.flavor='v2')
+  x = RunPCA(x)
+  x = FindNeighbors(x, dims=1:30)
+  x = RunUMAP(x, dims=1:30)
+  x = FindClusters(x, resolution=.6)
+  x
+})
+```
+
+```{r}
+#DimPlot(gw2, label=T , cols=dittoColors(), pt.size=1) + NoAxes()
+#FeaturePlot(gw2, features = c( 'MKI67','HOPX','GLI3',"EOMES","DLX2",'NEUROD2',"AQP4","OLIG1", 'PTPRZ1'), pt.size = 1, order=T,max.cutoff = 'q98') & NoAxes() #& scale_color_viridis_c()
+#dittoBarPlot(gw2, group.by = 'clone', var='ident') + NoAxes()
+#dittoBarPlot(gw2, group.by = 'ident', var='clone') + NoLegend()
+```
+
+```{r}
+p1 = hist(table(gw[[8]]$short_clone), breaks=500, col="red",ylim = c(0,10), xlim=c(0,80))
+length(table(gw[[8]]$clone)[table(gw[[8]]$clone) >= 200])
+#passed_clone = names(table(gw$clone)[table(gw$clone) >= 300])
+#gw2 = subset(gw, subset = clone %in% passed_clone)
+```

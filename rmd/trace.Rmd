@@ -1,0 +1,156 @@
+---
+title: "TRACE"
+output: html_notebook
+---
+
+```{r}
+seuratToH5AD <- function(seuratObj, h5ad_output, pca=TRUE, umap=FALSE){
+  Sys.setenv(RETICULATE_PYTHON = "/home/chang/miniconda3/envs/venv/bin/python")
+  library(reticulate)
+  #use_condaenv('venv')
+  library(Matrix)
+  writeMM(t(seuratObj@assays$RNA@counts), file='combined.mtx')
+  #writeMM(t(seuratObj@assays$SCT@data), file='sct.mtx')
+  #writeMM(t(seuratObj@assays$spliced@counts), file='spliced.mtx')
+  #writeMM(t(seuratObj@assays$unspliced@counts), file='unspliced.mtx')
+  write.csv(rownames(seuratObj@assays$RNA@counts), file = "genes.csv", row.names = FALSE)
+  if(umap == TRUE){
+  	write.csv(seuratObj@reductions$umap@cell.embeddings, file = "umap.csv", row.names = FALSE)
+  }
+  if(pca == TRUE){
+	  write.csv(seuratObj@reductions$pca@cell.embeddings, file = "pca.csv", row.names = FALSE)
+  }
+  write.csv(colnames(seuratObj@assays$RNA@counts), file = "cells.csv", row.names = FALSE)
+  write.csv(seuratObj@meta.data, file = "meta.csv", row.names = FALSE)
+  source_python('/home/chang/build_no_spliced.py')
+  build(h5ad_output, pca = pca, umap = umap)
+  file.remove('combined.mtx')
+  #file.remove('spliced.mtx')
+  #file.remove('unspliced.mtx')
+  file.remove('genes.csv')
+  file.remove('cells.csv')
+  file.remove('meta.csv')
+  #file.remove("sct.csv")
+  if(umap == TRUE){
+  	file.remove('umap.csv')
+  }
+  if(pca == TRUE){
+	  file.remove('pca.csv')
+  }
+}
+```
+
+```{r}
+library(Seurat)
+library(harmony)
+
+pilot_calls = read.table("~/data_dir/pilot_class.csv", sep=',', row.names = 1, header=T)
+adm1_calls = read.table("~/data_dir/SAM24416646_class.csv", sep=',', row.names = 1, header=T)
+adm2_calls = read.table("~/data_dir/SAM24416647_class.csv", sep=',', row.names = 1, header=T)
+founder1_calls = read.table("~/data_dir/SAM24416644_class.csv", sep=',', row.names = 1, header=T)
+founder2_calls = read.table("~/data_dir/SAM24416645_class.csv", sep=',', row.names = 1, header=T)
+pilot_calls = pilot_calls[pilot_calls$n_sgRNAs > 0,]
+adm1_calls = adm1_calls[adm1_calls$n_sgRNAs > 0,]
+adm2_calls = adm2_calls[adm2_calls$n_sgRNAs > 0,]
+founder1_calls = founder1_calls[founder1_calls$n_sgRNAs > 0,]
+founder2_calls = founder2_calls[founder2_calls$n_sgRNAs > 0,]
+
+pilot = CreateSeuratObject(Read10X_h5("~/data_dir/pilot_raw.h5")[,rownames(pilot_calls)], project = 'pilot')
+adm1 = CreateSeuratObject(Read10X_h5("~/data_dir/SAM24416646_raw.h5")[,rownames(adm1_calls)], project = 'ADM1')
+adm2 = CreateSeuratObject(Read10X_h5("~/data_dir/SAM24416647_raw.h5")[,rownames(adm2_calls)], project = 'ADM2')
+founder1 = CreateSeuratObject(Read10X_h5("~/data_dir/SAM24416644_raw.h5")[,rownames(founder1_calls)], project = 'Founder1')
+founder2 = CreateSeuratObject(Read10X_h5("~/data_dir/SAM24416645_raw.h5")[,rownames(founder2_calls)], project = 'Founder2')
+pilot$clone = paste0(unlist(lapply(strsplit(pilot_calls$sgRNAs,"-"), function(i) i[[1]])),"_",pilot_calls$n_sgRNAs,"_1")
+adm1$clone = paste0(unlist(lapply(strsplit(adm1_calls$sgRNAs,"-"), function(i) i[[1]])),"_",adm1_calls$n_sgRNAs, "_2")
+adm2$clone = paste0(unlist(lapply(strsplit(adm2_calls$sgRNAs,"-"), function(i) i[[1]])),"_",adm2_calls$n_sgRNAs, "_3")
+founder1$clone = paste0(unlist(lapply(strsplit(founder1_calls$sgRNAs,"-"), function(i) i[[1]])),"_",founder1_calls$n_sgRNAs, "_4")
+founder2$clone = paste0(unlist(lapply(strsplit(founder2_calls$sgRNAs,"-"), function(i) i[[1]])),"_",founder2_calls$n_sgRNAs, "_5")
+
+merged = merge(pilot, c(adm1,adm2,founder1,founder2))
+
+merged[["percent.mt"]] <- PercentageFeatureSet(merged, pattern = "^MT-")
+merged = subset(merged, subset=percent.mt < 25)
+```
+
+```{r}
+merged = SCTransform(merged, vst.flavor='v2', ncells = 5000, n_genes=NULL)
+merged = RunPCA(merged)
+merged = RunUMAP(merged, dims=1:30)
+merged = FindNeighbors(merged, dims=1:30)
+merged = FindClusters(merged, algorithm = 2, resolution = 1)
+merged$clusters = as.character(merged$SCT_snn_res.1)
+merged$clusters[merged$SCT_snn_res.1 == 4] = "Div"
+merged$clusters[merged$SCT_snn_res.1 == 3] = "Div"
+merged$clusters[merged$SCT_snn_res.1 == 8] = "AEC1"
+merged$clusters[merged$SCT_snn_res.1 == 14] = "AEC1"
+merged$clusters[merged$SCT_snn_res.1 == 11] = "Club"
+merged$clusters[merged$SCT_snn_res.1 == 1] = "Aberrant"
+merged$clusters[merged$SCT_snn_res.1 == 10] = "Aberrant"
+merged$clusters[merged$SCT_snn_res.1 == 9] = "S100A10"
+merged$clusters[merged$SCT_snn_res.1 == 12] = "TFAP2B"
+merged$clusters[merged$SCT_snn_res.1 == 6] = "cDC"
+merged$clusters[merged$SCT_snn_res.1 == 5] = "Mac"
+merged$clusters[merged$SCT_snn_res.1 == 0] = "Founder_AEC_1"
+merged$clusters[merged$SCT_snn_res.1 == 13] = "Founder_AEC_1"
+merged$clusters[merged$SCT_snn_res.1 == 2] = "Founder_AEC_2"
+merged$clusters[merged$SCT_snn_res.1 == 7] = "Founder_AEC_3"
+
+
+Idents(merged2) = merged2$clusters
+DimPlot_scCustom(merged2, group.by = 'clusters', pt.size = 1, label=F) + NoAxes()
+```
+
+```{r}
+merged$condition = "Organoid"
+ref = readRDS("~/data_dir/GSE178360_epi.sub_SAE10x3.integrated_v2.RDS")
+
+
+merged = merge(merged, ref)
+merged$cell_type[is.na(merged$cell_type)] = "Organoid"
+merged = SCTransform(merged, vst.flavor='v2', ncells = 15000, n_genes=NULL)
+merged = RunPCA(merged, npcs=30)
+
+merged = RunHarmony(merged, group.by.vars=c("condition"), assay.use = 'SCT', plot_convergence = T)
+merged = RunUMAP(merged, dims=1:30, reduction='harmony')
+merged = FindNeighbors(merged, dims=1:30, reduction='harmony')
+merged = FindClusters(merged, algorithm = 2,resolution = .2)
+
+DimPlot_scCustom(ref, group.by='cell_type', pt.size = 2, label=T) + NoAxes()
+DimPlot_scCustom(merged, group.by='condition', pt.size = 1) + NoAxes()
+DimPlot_scCustom(merged, group.by='orig.ident', pt.size = 1,split.by = "condition") & NoAxes()
+DimPlot_scCustom(merged, group.by='cell_type', pt.size = 2, label=T) + NoAxes()
+DimPlot_scCustom(merged, label=T, group.by = "SCT_snn_res.0.3", pt.size = 1)  + NoAxes()
+
+FeaturePlot(merged, features = c("SFTPC","SFTPB","MUC5AC","KRT5"), order=T, 
+            max.cutoff = 'q99', pt.size = 1)  & scale_color_viridis() & NoAxes()
+
+merged$clusters = "Ciliated"
+merged$clusters[merged$SCT_snn_res.0.3 == 6] = "MUC5"
+merged$clusters[merged$SCT_snn_res.0.3 == 2] = "KRT5_Basal"
+merged$clusters[merged$SCT_snn_res.0.3 == 1] = "AT2"
+merged$clusters[merged$SCT_snn_res.0.3 == 11] = "AT2"
+merged$clusters[merged$SCT_snn_res.0.3 == 12] = "AT2"
+merged$clusters[merged$SCT_snn_res.0.3 == 9] = "AT2"
+merged$clusters[merged$SCT_snn_res.0.3 == 7] = "Div"
+merged$clusters[merged$SCT_snn_res.0.3 == 5] = "AT1"
+merged$clusters[merged$SCT_snn_res.0.3 == 10] = "SFTPC_SCGB3A2"
+merged$clusters[merged$SCT_snn_res.0.3 == 3] = "SFTPB_SCGB3A2"
+merged$clusters[merged$SCT_snn_res.0.3 == 4] = "SFTPB_SCGB3A2"
+merged$clusters[merged$SCT_snn_res.0.3 == 13] = "SFTPB_SCGB3A2"
+Idents(merged) = merged$condition
+dittoBarPlot(merged, var='clusters', group.by = 'cell_type')
+DimPlot_scCustom(merged, label=T, group.by = "clusters", pt.size = 1)  + NoAxes()
+merged2 = subset(merged, idents="Organoid")
+
+
+
+clones = table(merged2$clone)
+clones = clones[clones > 1]
+plot(clones[order(clones)])
+merged3 = subset(merged2, subset=clone %in% names(clones))
+merged3 = SCTransform(merged3, vst.flavor='v2')
+merged3 = RunPCA(merged3)
+merged3 = RunUMAP(merged3, dims=1:30)
+setwd("~/data_dir/")
+seuratToH5AD(merged3,h5ad_output = "/home/chang/data_dir/data.h5ad",pca = TRUE,umap=TRUE)
+```
