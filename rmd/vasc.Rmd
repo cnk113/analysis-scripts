@@ -23,11 +23,19 @@ library(tidyverse)
 library(UCell)
 library(MetBrewer)
 library(igraph)
-library(enrichR)
+library(richR)
 library(CellChat)
 library(UCell)
 library(pathfindR)
-
+library(UpSetR)
+library(EnhancedVolcano)
+library(escape)
+library(msigdbr)
+library(fgsea)
+library(BayesPrism)
+library(SpaceFold)
+library(phateR)
+library(DESeq2)
 #load('/media/chang/HDD-1/chang/fastqs/aneu/solo.RData')
 ```
 
@@ -65,7 +73,7 @@ ReadSTAR <- function(data.dir, proj = "SeuratObject", feats = 1000, cutoff=1) {
 ```
 
 ```{r}
-dir = "/media/chang/HDD-1/chang/fastqs/aneu_bulk/"
+dir = "/media/chang/HDD-1/chang/fastqs/aneu/aneu_bulk/"
 files = list.files(path = dir ,pattern = "\\Gene.out.tab$")
 samples = unlist(lapply(strsplit(files, split="_"), function(i) i[[1]]))
 mtx = lapply(files, function(i){
@@ -77,7 +85,7 @@ mtx = lapply(files, function(i){
 })
 names(mtx) = samples
 mtx = do.call(cbind, mtx)
-meta = read.table(paste0(dir,"meta.txt"), sep='\t',header=T)
+meta = read.table("/media/chang/HDD-1/chang/fastqs/aneu/aneu_bulk/meta.txt", sep='\t',header=T)
 meta$pheno = 0
 meta$pheno[meta$Condition == "R"] = 1
 mtx = mtx[,meta$Sample]
@@ -88,6 +96,24 @@ genes = unique(gtf_df[ ,c("gene_id","gene_name")])
 rownames(genes) = genes$gene_id
 genes = genes[rownames(mtx),]
 rownames(mtx) = genes$gene_name
+```
+
+
+```{r}
+meta = meta[meta$Condition != "C",]
+mtx = mtx[,meta$Sample]
+rownames(meta) = meta$Sample
+dds <- DESeqDataSetFromMatrix(countData = mtx,
+                              colData = meta,
+                              design = ~ Condition)
+
+dds <- DESeq(dds)
+res <- lfcShrink(dds, coef="Condition_U_vs_R", type="apeglm")
+res= res[!is.na(res$padj),]
+res = res[res$padj < .05,]
+res = res[abs(res$log2FoldChange) >= 2,]
+up = res[res$log2FoldChange > 0,]
+down = res[res$log2FoldChange < 0,]
 ```
 
 ```{r}
@@ -195,9 +221,7 @@ merged$Scissor[infos$Scissor_neg] = "Neg"
 
 save.image('/media/chang/HDD-1/chang/fastqs/aneu/solo.RData')
 
-evaluate_summary = evaluate.cell('/media/chang/HDD-1/chang/fastqs/aneu/Scissor.RData', 
-                                  infos, FDR = 0.05, bootstrap_n = 100)
-evaluate_summary[1:5,1:4]
+
 
 DimPlot_scCustom(seurat_object = merged, group.by = "Scissor", pt.size = 1) + NoAxes()
 DimPlot_scCustom(seurat_object = merged_subset, group.by = "Scissor", pt.size = 1) + NoAxes()
@@ -317,7 +341,7 @@ gg1 + gg2
 pathways.show <- c("PERIOSTIN") 
 weight.max <- getMaxWeight(object.list, slot.name = c("netP"), 
                            attribute = pathways.show) 
-par(mfrow = c(1,2), xpd=TRUE)
+par(mfrow = c(1,1), xpd=TRUE)
 for (i in 1:length(object.list)) {
   netVisual_aggregate(object.list[[i]], signaling = pathways.show, layout = "circle", 
                       edge.width.max = 10, signaling.name = paste(pathways.show, names(object.list)[i]))
@@ -411,8 +435,7 @@ merged.vasc2$Condition = tmp$Condition
 merged.vasc2$Sample = tmp$Sample
 merged.vasc = merged.vasc2
 
-merged.vasc = subset(merged2, idents=c("FB1","Aneu1","Aneu2","FBMC1","FBMC2",
-                                      "FB2","SMC2","PC"))
+merged.vasc = subset(merged2, idents=c("FB1","Aneu1","Aneu2","FB2","SMC2","PC"))
 
 DefaultAssay(merged.vasc) = 'RNA'
 merged.vasc = NormalizeData(merged.vasc)
@@ -423,13 +446,10 @@ VariableFeatures(merged.vasc) = VariableFeatures(merged.vasc)[!grepl("MT-", Vari
 VariableFeatures(merged.vasc) = VariableFeatures(merged.vasc)[!grepl("MALAT1", VariableFeatures(merged.vasc))] 
 merged.vasc@assays$SCT@scale.data = merged.vasc@assays$SCT@scale.data[VariableFeatures(merged.vasc),] 
 
-
 merged.vasc = RunPCA(merged.vasc, npcs = 30)
 merged.vasc = RunHarmony(merged.vasc, group.by.vars = c('Sample', "Condition"), 
                          plot_convergence = T, assay.use = "SCT")
 merged.vasc = RunUMAP(merged.vasc, dims=1:30, reduction = 'harmony')
-merged.vasc = FindNeighbors(merged.vasc, dims=1:30, reduction = 'harmony')
-merged.vasc = FindClusters(merged.vasc , resolution = .1, algorithm = 2)
 
 seuratToH5AD(merged.vasc, "aneu.h5ad", rownames(merged.vasc@assays$SCT@data))
 
@@ -460,6 +480,714 @@ merged = AddModuleScore_UCell(merged, features = gwas, assay = 'SCT', maxRank = 
 FeaturePlot(merged, features = c("gwas_UCell"), max.cutoff = 'q99', order=T, 
             pt.size = .1, min.cutoff = 'q25') & NoAxes() & scale_color_viridis_c()
 ``` 
+
+```{r}
+library(SpatialDecon)
+rows = readLines("/media/chang/HDD-1/chang/fastqs/aneu/spatial/gene_names.txt")
+
+neg = read.table("/media/chang/HDD-1/chang/fastqs/aneu/spatial/Neg_probes.csv",
+                 sep=',', header=T, row.names = 1)
+rows = c(rows, neg$ProbeDisplayName)
+raw = read.table("/media/chang/HDD-1/chang/fastqs/aneu/spatial/count_matrix_all.csv",
+                     sep=',', header=T)
+norm = RelativeCounts(raw, scale.factor = 1e6)
+rownames(norm) = rows
+rownames(raw) = rows
+norm_neg = colMeans(norm[grepl("NegProbe",rownames(norm)),])
+raw_neg = colMeans(raw[grepl("NegProbe",rownames(raw)),])
+raw = raw[!grepl("NegProbe", rownames(raw)),]
+norm = norm[!grepl("NegProbe", rownames(norm)),]
+norm = rbind(norm, norm_neg)
+raw = rbind(raw, raw_neg)
+rownames(norm)[length(rownames(norm))] = "NegProbe"
+rownames(raw)[length(rownames(raw))] = "NegProbe"
+norm = as.matrix(norm)
+raw = as.matrix(raw)
+
+
+bg2 = derive_GeoMx_background(norm = as.matrix(norm),
+                             probepool = rep(1, nrow(norm)),
+                             negnames = "NegProbe")
+
+
+
+merged.vasc3 = subset(merged2, idents=c("FB1","Aneu1","Aneu2","FB2","SMC1","PC","BC","Ly1","Ly2",
+                                        "FBMC1","FBMC2","FBMC3","SMC2","OC","EC1","OL","Ly3",
+                                        "EC2","EC3","PVM1","PVM2","PVM3","PVM4",'cDC','pDC',"Ly4"))
+
+merged.vasc3 = subset(merged2, idents=c("FB1","Aneu1","Aneu2","FB2","SMC1","PC",
+                                        "FBMC1","FBMC2","FBMC3","SMC2","EC1",
+                                        "EC2","EC3"))
+
+merged.vasc3$class = merged.vasc3$clusters
+merged.vasc3$class[grepl("SMC", merged.vasc3$clusters)] = "SMC"
+merged.vasc3$class[grepl("FB", merged.vasc3$clusters)] = "FB"
+merged.vasc3$class[grepl("FBMC", merged.vasc3$clusters)] = "FBMC"
+merged.vasc3$class[grepl("EC", merged.vasc3$clusters)] = "EC"
+
+merged.vasc3$class[grepl("PVM", merged.vasc3$clusters)] = "PVM"
+merged.vasc3$class[grepl("cDC", merged.vasc3$clusters)] = "PVM"
+merged.vasc3$class[grepl("Ly", merged.vasc3$clusters)] = "Ly"
+#merged.vasc3$class[grepl("Aneu", merged.vasc3$clusters)] = "Aneu"
+
+rows = readLines("/media/chang/HDD-1/chang/fastqs/aneu/spatial/gene_names.txt")
+rows = intersect(rows, rownames(merged2@assays$SCT@data))
+merged.vasc3$cellID = colnames(merged.vasc3)
+#merged2$cellID = colnames(merged2)
+
+custom_mtx_seurat <- create_profile_matrix(mtx = merged.vasc3@assays$RNA@counts[rows,], 
+                                           cellAnnots = merged.vasc3@meta.data, 
+                                           cellTypeCol = "class", 
+                                           cellNameCol = "cellID", 
+                                           matrixName = "vasc",
+                                           outDir = NULL, 
+                                           normalize = FALSE, 
+                                           minCellNum = 5, 
+                                           minGenes = 10)
+
+heatmap(sweep(custom_mtx_seurat, 1, apply(custom_mtx_seurat, 1, max), "/"),
+        labRow = NA, margins = c(10, 5))
+
+nuclei = read.table("/media/chang/HDD-1/chang/fastqs/aneu/spatial/SegmentProperties.csv",
+                    sep=',')
+
+meta = read.table("/media/chang/HDD-1/chang/fastqs/aneu/spatial/Add_Meta.csv",
+                    sep=',')
+
+# vector identifying pure tumor segments:
+meta$istumor = (meta$CONDITION == "Aneurysm")
+nuclei$AOINucleiCount[34] = 34
+#nuclei$AOINucleiCount = nuclei$AOINucleiCount *  5
+# run spatialdecon with all the bells and whistles:
+restils = spatialdecon(norm = norm,                     # normalized data
+                       raw = raw,                       # raw data, used to down-weight low-count observations 
+                       bg = bg2,                         # expected background counts for every data point in norm
+                       X = custom_mtx_seurat,
+                       maxit=10000,
+                       cell_counts = nuclei$AOINucleiCount)     # nuclei counts, used to estimate total cells
+                       #is_pure_tumor = meta$istumor,   # identities of the Tumor segments/observations
+                       #n_tumor_clusters = 1)            # how many distinct tumor profiles to append to safeTME
+
+
+heatmap(sweep(restils$X, 1, apply(restils$X, 1, max), "/"),
+         labRow = NA, margins = c(10, 5))
+
+layout(mat = (matrix(c(1, 2), 1)), widths = c(7, 3))
+
+TIL_barplot(restils$cell.counts$cell.counts, draw_legend = TRUE, 
+            cex.names = 0.5)
+
+
+matching = list()
+matching$SMC = c( "SMC1", "SMC2")
+#matching$Ly = c("Ly1","Ly2", "Ly3", "Ly4")
+#matching$BC = c("BC")
+matching$OC = c("OC")
+matching$OL = c("OL")
+matching$PC = c("PC")
+matching$pDC = c("pDC")
+matching$AC = c("AC")
+matching$Aneu1 = c("Aneu1")
+matching$Aneu2 = c("Aneu2")
+matching$EC = c("EC1","EC2","EC3")
+matching$PVM = c("PVM1","PVM2","PVM3","PVM4","cDC")
+matching$FB = c("FB1", "FB2")
+matching$FBMC = c("FBMC1", "FBMC2","FBMC3")
+
+collapsed = collapseCellTypes(fit = restils, 
+                              matching = matching)
+
+heatmap(collapsed$beta, cexRow = 0.85, cexCol = 0.75)
+
+
+
+res = spatialdecon(norm = norm,
+                   bg = bg2,
+                   X = custom_mtx_seurat,
+                   align_genes = TRUE)
+heatmap(res$beta, cexCol = 0.5, cexRow = 0.7, margins = c(10,7))
+
+
+rdecon = reverseDecon(norm = norm,
+                      beta = restils$beta)
+# look at the residuals:
+heatmap(pmax(pmin(rdecon$resids, 2), -2))
+
+
+```
+
+```{r}
+ctrl1 = read.table("/media/chang/HDD-1/chang/fastqs/aneu/spatial/count_matrix_ctrl1.csv",
+                     sep=',', header=T)
+ctrl2 = read.table("/media/chang/HDD-1/chang/fastqs/aneu/spatial/count_matrix_ctrl2.csv",
+                     sep=',', header=T)
+aneu1 = read.table("/media/chang/HDD-1/chang/fastqs/aneu/spatial/count_matrix_aneu1.csv",
+                     sep=',', header=T)
+aneu2 = read.table("/media/chang/HDD-1/chang/fastqs/aneu/spatial/count_matrix_aneu2.csv",
+                     sep=',', header=T)
+
+bk = list(ctrl1[,c(1:4)], ctrl1[,c(5:8)], ctrl1[,c(9:12)], ctrl2[,c(1:4)], ctrl2[,c(5:8)], 
+          aneu1[,c(1:4)], aneu1[,c(5:8)], aneu1[,c(9:12)], aneu2)
+
+
+bk.ctrl = data.frame(ctrl1, ctrl2)
+bk.aneu = data.frame(aneu1, aneu2)
+bk = list(bk.ctrl, bk.aneu)
+
+merged.vasc3 = subset(merged2, idents=c("FB1","Aneu1","Aneu2","FB2","SMC1","pDC",
+                                        "FBMC1","FBMC2","FBMC3","SMC2","OC","EC1",
+                                        "EC2","EC3","PVM1","PVM2","PVM3","PVM4","cDC"))
+
+merged.vasc3 = subset(merged2, idents=c("FB1","Aneu1","Aneu2","FB2","SMC1",
+                                        "FBMC1","FBMC2","FBMC3","SMC2","EC1",
+                                        "EC2","EC3",'PC'))
+
+#merged.vasc3 = merged2
+merged.vasc3$class = merged.vasc3$clusters
+merged.vasc3$class[grepl("SMC", merged.vasc3$clusters)] = "SMC"
+merged.vasc3$class[grepl("PC", merged.vasc3$clusters)] = "SMC"
+merged.vasc3$class[grepl("FB", merged.vasc3$clusters)] = "FB"
+merged.vasc3$class[grepl("FBMC", merged.vasc3$clusters)] = "FBMC"
+merged.vasc3$class[grepl("EC", merged.vasc3$clusters)] = "EC"
+
+
+merged.vasc3$class[grepl("PVM", merged.vasc3$clusters)] = "PVM"
+merged.vasc3$class[grepl("PVM3", merged.vasc3$clusters)] = "PVM3"
+
+rows = readLines("/media/chang/HDD-1/chang/fastqs/aneu/spatial/gene_names.txt")
+inter = intersect(rows, rownames(merged.vasc3@assays$RNA@counts))
+
+sc.dat = as.matrix(t(merged.vasc3@assays$RNA@counts[inter,]))
+sc.dat.filtered <- cleanup.genes (input=sc.dat,
+                                  input.type="count.matrix",
+                                  species="hs", 
+                                  gene.group=c("Rb","Mrp","other_Rb","chrM","MALAT1","chrX","chrY"),
+                                  exp.cells=5)
+rm(sc.dat);gc()
+
+inter = intersect(rows, colnames(sc.dat.filtered))
+
+
+# merged
+###
+cells = merged.vasc3@meta.data[merged.vasc3$class %in% 
+                                 c("FB","SMC","EC","FBMC","PC"),]
+cells = cells[cells$Condition %in% "CTRL",]
+bk.ctrl = data.frame(ctrl1, ctrl2)
+rownames(bk.ctrl) = rows
+bk.ctrl = as.matrix(t(bk.ctrl[inter,]))
+myPrism <- new.prism(
+  reference=sc.dat.filtered[rownames(cells),inter], 
+  mixture=bk.ctrl,
+  input.type="count.matrix", 
+  cell.type.labels = cells$class, 
+  cell.state.labels = cells$clusters,
+  outlier.cut=0.01,
+  outlier.fraction=0.1,
+  key=NULL
+)
+gc()
+bp.res <- run.prism(prism = myPrism, n.cores=50)
+bp.res
+
+cells = merged.vasc3@meta.data[merged.vasc3$class %in% 
+                                 c("FB","EC","FBMC","SMC","PC", "Aneu1","Aneu2"),]
+cells = cells[cells$Condition %in% "Aneu",]
+bk.aneu = data.frame(aneu1, aneu2)
+rownames(bk.aneu) = rows
+bk.aneu = as.matrix(t(bk.aneu[inter,]))
+myPrism <- new.prism(
+  reference=sc.dat.filtered[rownames(cells),inter], 
+  mixture=bk.aneu,
+  input.type="count.matrix", 
+  cell.type.labels = cells$class, 
+  cell.state.labels = cells$clusters,
+  outlier.cut=0.01,
+  outlier.fraction=0.1,
+  key=NULL,
+)
+gc()
+bp.res2 <- run.prism(prism = myPrism, n.cores=50)
+bp.res2
+
+cells = merged.vasc3@meta.data[merged.vasc3$class %in% 
+                                 c("PVM",'pDC','cDC', "PVM3"),]
+cells = cells[cells$Condition %in% "CTRL",]
+bk.aneu = data.frame(aneu1, aneu2)
+rownames(bk.aneu) = rows
+bk.aneu = as.matrix(t(bk.aneu[inter,]))
+myPrism <- new.prism(
+  reference=sc.dat.filtered[rownames(cells),inter], 
+  mixture=bk.aneu,
+  input.type="count.matrix", 
+  cell.type.labels = cells$class, 
+  cell.state.labels = cells$clusters,
+  outlier.cut=0.01,
+  outlier.fraction=0.1,
+  key=NULL,
+)
+gc()
+bp.res3 <- run.prism(prism = myPrism, n.cores=50)
+bp.res3
+
+
+cells = merged.vasc3@meta.data[merged.vasc3$class %in% 
+                                 c("PVM","OC",'pDC','cDC',"PVM3"),]
+cells = cells[cells$Condition %in% "Aneu",]
+bk.aneu = data.frame(aneu1, aneu2)
+rownames(bk.aneu) = rows
+bk.aneu = as.matrix(t(bk.aneu[inter,]))
+myPrism <- new.prism(
+  reference=sc.dat.filtered[rownames(cells),inter], 
+  mixture=bk.aneu,
+  input.type="count.matrix", 
+  cell.type.labels = cells$class, 
+  cell.state.labels = cells$clusters,
+  outlier.cut=0.01,
+  outlier.fraction=0.1,
+  key=NULL,
+)
+gc()
+bp.res4 <- run.prism(prism = myPrism, n.cores=50)
+bp.res4
+###################################
+
+theta <- get.fraction(bp=bp.res,
+            which.theta="final",
+            state.or.type="state")
+
+theta2 <- get.fraction(bp=bp.res2,
+            which.theta="final",
+            state.or.type="state")
+
+theta3 <- get.fraction(bp=bp.res3,
+            which.theta="final",
+            state.or.type="state")
+
+theta4 <- get.fraction(bp=bp.res4,
+            which.theta="final",
+            state.or.type="state")
+
+ctrl_avg = colMeans(theta)
+ctrl_avg["Aneu1"] = 0
+ctrl_avg["Aneu2"] = 0
+aneu_avg = colMeans(theta2)
+avg_df = t(data.frame(ctrl_avg, aneu_avg))
+
+pdf('nano_bar_prop.pdf', width = 3, height = 7)
+ggplot(melt(avg_df,id.vars = 1),aes(x=Var1,y=value,fill=Var2)) + 
+  geom_bar(position = "fill", stat = "identity") + theme_bw() + 
+  scale_fill_manual(values=dittoColors()) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=15),legend.text =element_text(size=15))
+dev.off()
+
+ctrl_avg = colMeans(theta3)
+ctrl_avg["OC"] = 0
+aneu_avg = colMeans(theta4)
+avg_df = t(data.frame(ctrl_avg, aneu_avg))
+
+pdf('nano_bar_immune_prop.pdf', width = 3, height = 7)
+ggplot(melt(avg_df,id.vars = 1),aes(x=Var1,y=value,fill=Var2)) + 
+  geom_bar(position = "fill", stat = "identity") + theme_bw() + 
+  scale_fill_manual(values=dittoColors()[7:11]) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=15),legend.text =element_text(size=15))
+dev.off()
+
+
+
+
+ggplot(melt(theta,id.vars = 1),aes(x=Var1,y=value,fill=Var2)) + 
+  geom_bar(position = "fill", stat = "identity") + theme_bw() + 
+  scale_fill_manual(values=dittoColors()) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=15),legend.text =element_text(size=15))
+
+ggplot(melt(theta2,id.vars = 1),aes(x=Var1,y=value,fill=Var2)) + 
+  geom_bar(position = "fill", stat = "identity") + theme_bw() + 
+  scale_fill_manual(values=dittoColors()) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=15),legend.text =element_text(size=15))
+
+ggplot(melt(theta3,id.vars = 1),aes(x=Var1,y=value,fill=Var2)) + 
+  geom_bar(position = "fill", stat = "identity") + theme_bw() + 
+  scale_fill_manual(values=dittoColors()) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=15),legend.text =element_text(size=15))
+
+ggplot(melt(theta4,id.vars = 1),aes(x=Var1,y=value,fill=Var2)) + 
+  geom_bar(position = "fill", stat = "identity") + theme_bw() + 
+  scale_fill_manual(values=dittoColors()) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=15),legend.text =element_text(size=15))
+####
+###
+aneu.expr <- data.frame(get.exp(bp=bp.res2,
+                          state.or.type="type",
+                          cell.name="Aneu1"))
+aneu.meta = expand.grid(Area = c("EC", "M1", "M2", "Adv"),
+                  replicates = c(1, 2, 3, 4))
+aneu.expr$Area = aneu.meta$Area
+#aneu.expr$Rep = as.character(aneu.meta$replicates)
+aneu.expr2 = aneu.expr[,c("POSTN","THY1","CLDN5","ACTA2", "DCN","Area")]
+
+ggplot(aneu.expr, aes(x=Area, y=POSTN, color=Rep)) + geom_point() +
+  geom_smooth(method = "loess", se = F, span = 2,size=2,aes(color = Rep)) + theme_bw()
+
+aneu.expr2 = melt(aneu.expr2, id="Area")  
+#aneu.expr = aneu.expr[aneu.expr$variable != "Rep",]
+p1 = ggplot(aneu.expr2, aes(x=Area, y=value, color=variable)) + geom_point() + ylim(0,40) +
+  geom_smooth(method = "loess", se = F, span = 2,size=2,aes(color = variable)) + theme_bw()
+
+
+
+aneu.expr <- data.frame(get.exp(bp=bp.res2,
+                          state.or.type="type",
+                          cell.name="Aneu2"))
+aneu.meta = expand.grid(Area = c("EC", "M1", "M2", "Adv"),
+                  replicates = c(1, 2, 3, 4))
+aneu.expr$Area = aneu.meta$Area
+#aneu.expr$Rep = as.character(aneu.meta$replicates)
+aneu.expr2 = aneu.expr[,c("POSTN","THY1","CLDN5","ACTA2", "DCN","Area")]
+
+ggplot(aneu.expr, aes(x=Area, y=POSTN, color=Rep)) + geom_point() +
+  geom_smooth(method = "loess", se = F, span = 2,size=2,aes(color = Rep)) + theme_bw()
+
+aneu.expr2 = melt(aneu.expr2, id="Area")  
+#aneu.expr = aneu.expr[aneu.expr$variable != "Rep",]
+p2 = ggplot(aneu.expr2, aes(x=Area, y=value, color=variable)) + geom_point() + ylim(0,40) +
+  geom_smooth(method = "loess", se = F, span = 2,size=2,aes(color = variable)) + theme_bw()
+
+
+aneu.expr <- data.frame(get.exp(bp=bp.res2,
+                          state.or.type="type",
+                          cell.name="SMC"))
+aneu.meta = expand.grid(Area = c("EC", "M1", "M2", "Adv"),
+                  replicates = c(1, 2, 3, 4))
+aneu.expr$Area = aneu.meta$Area
+#aneu.expr$Rep = as.character(aneu.meta$replicates)
+aneu.expr2 = aneu.expr[,c("POSTN","THY1","CLDN5","ACTA2", "DCN","Area")]
+
+ggplot(aneu.expr, aes(x=Area, y=POSTN, color=Rep)) + geom_point() +
+  geom_smooth(method = "loess", se = F, span = 2,size=2,aes(color = Rep)) + theme_bw()
+
+aneu.expr2 = melt(aneu.expr2, id="Area")  
+#aneu.expr = aneu.expr[aneu.expr$variable != "Rep",]
+p3 = ggplot(aneu.expr2, aes(x=Area, y=value, color=variable)) + geom_point() + ylim(0,40) +
+  geom_smooth(method = "loess", se = F, span = 2,size=2,aes(color = variable)) + theme_bw()
+
+
+aneu.expr <- data.frame(get.exp(bp=bp.res2,
+                          state.or.type="type",
+                          cell.name="FB"))
+aneu.meta = expand.grid(Area = c("EC", "M1", "M2", "Adv"),
+                  replicates = c(1, 2, 3, 4))
+aneu.expr$Area = aneu.meta$Area
+#aneu.expr$Rep = as.character(aneu.meta$replicates)
+aneu.expr2 = aneu.expr[,c("POSTN","THY1","CLDN5","ACTA2","DCN", "Area")]
+
+ggplot(aneu.expr, aes(x=Area, y=POSTN, color=Rep)) + geom_point() +
+  geom_smooth(method = "loess", se = F, span = 2,size=2,aes(color = Rep)) + theme_bw()
+
+aneu.expr2 = melt(aneu.expr2, id="Area")  
+#aneu.expr = aneu.expr[aneu.expr$variable != "Rep",]
+p4 = ggplot(aneu.expr2, aes(x=Area, y=value, color=variable)) + geom_point() + ylim(0,40) +
+  geom_smooth(method = "loess", se = F, span = 2,size=2,aes(color = variable)) + theme_bw()
+
+
+aneu.expr <- data.frame(get.exp(bp=bp.res2,
+                          state.or.type="type",
+                          cell.name="FBMC"))
+aneu.meta = expand.grid(Area = c("EC", "M1", "M2", "Adv"),
+                  replicates = c(1, 2, 3, 4))
+aneu.expr$Area = aneu.meta$Area
+#aneu.expr$Rep = as.character(aneu.meta$replicates)
+aneu.expr2 = aneu.expr[,c("POSTN","THY1","CLDN5","ACTA2","DCN", "Area")]
+
+ggplot(aneu.expr, aes(x=Area, y=POSTN, color=Rep)) + geom_point() +
+  geom_smooth(method = "loess", se = F, span = 2,size=2,aes(color = Rep)) + theme_bw()
+
+aneu.expr2 = melt(aneu.expr2, id="Area")  
+#aneu.expr = aneu.expr[aneu.expr$variable != "Rep",]
+p5 = ggplot(aneu.expr2, aes(x=Area, y=value, color=variable)) + geom_point() + ylim(0,40) +
+  geom_smooth(method = "loess", se = F, span = 2,size=2,aes(color = variable)) + theme_bw()
+
+aneu.expr <- data.frame(get.exp(bp=bp.res2,
+                          state.or.type="type",
+                          cell.name="PC"))
+aneu.meta = expand.grid(Area = c("EC", "M1", "M2", "Adv"),
+                  replicates = c(1, 2, 3, 4))
+aneu.expr$Area = aneu.meta$Area
+#aneu.expr$Rep = as.character(aneu.meta$replicates)
+aneu.expr2 = aneu.expr[,c("POSTN","THY1","CLDN5","ACTA2","DCN", "Area")]
+
+ggplot(aneu.expr, aes(x=Area, y=POSTN, color=Rep)) + geom_point() +
+  geom_smooth(method = "loess", se = F, span = 2,size=2,aes(color = Rep)) + theme_bw()
+
+aneu.expr2 = melt(aneu.expr2, id="Area")  
+#aneu.expr = aneu.expr[aneu.expr$variable != "Rep",]
+p6 = ggplot(aneu.expr2, aes(x=Area, y=value, color=variable)) + geom_point() + ylim(0,40) +
+  geom_smooth(method = "loess", se = F, span = 2,size=2,aes(color = variable)) + theme_bw()
+
+
+aneu.expr <- data.frame(get.exp(bp=bp.res2,
+                          state.or.type="type",
+                          cell.name="EC"))
+aneu.meta = expand.grid(Area = c("EC", "M1", "M2", "Adv"),
+                  replicates = c(1, 2, 3, 4))
+aneu.expr$Area = aneu.meta$Area
+#aneu.expr$Rep = as.character(aneu.meta$replicates)
+aneu.expr2 = aneu.expr[,c("POSTN","THY1","CLDN5","ACTA2", "Area")]
+
+ggplot(aneu.expr, aes(x=Area, y=POSTN, color=Rep)) + geom_point() +
+  geom_smooth(method = "loess", se = F, span = 2,size=2,aes(color = Rep)) + theme_bw()
+
+aneu.expr2 = melt(aneu.expr2, id="Area")  
+#aneu.expr = aneu.expr[aneu.expr$variable != "Rep",]
+p3 = ggplot(aneu.expr2, aes(x=Area, y=value, color=variable)) + geom_point() + ylim(0,40) +
+  geom_smooth(method = "loess", se = F, span = 2,size=2,aes(color = variable)) + theme_bw()
+
+###########
+
+ctrl.expr <- data.frame(get.exp(bp=bp.res,
+                        state.or.type="type",
+                        cell.name="FB"))
+ctrl.meta = expand.grid(Area = c("EC", "M1", "M2", "Adv"),
+                        replicates = c(1, 2, 3, 4, 5))
+ctrl.expr$Area = ctrl.meta$Area
+#ctrl.expr$Rep = ctrl.meta$replicates
+ctrl.expr2 = ctrl.expr[,c("POSTN","THY1","CLDN5", "Area", "PECAM1","ACTA2","DCN")]
+
+p0 = ggplot(ctrl.expr, aes(x=Area, y=POSTN, color=Rep)) + geom_point() +
+  geom_smooth(method = "loess", se = F, span = 2,size=2,aes(color = Rep)) + theme_bw()
+
+ctrl.expr2 = melt(ctrl.expr2, id="Area")  
+p1 = ggplot(ctrl.expr2, aes(x=Area, y=value, color=variable)) + geom_point() + ylim(0,40) +
+  geom_smooth(method = "loess", se = F, span = 2,size=2,aes(color = variable)) + theme_bw()
+
+
+
+ctrl.expr <- data.frame(get.exp(bp=bp.res,
+                        state.or.type="type",
+                        cell.name="FBMC"))
+ctrl.meta = expand.grid(Area = c("EC", "M1", "M2", "Adv"),
+                        replicates = c(1, 2, 3, 4, 5))
+ctrl.expr$Area = ctrl.meta$Area
+#ctrl.expr$Rep = ctrl.meta$replicates
+ctrl.expr2 = ctrl.expr[,c("POSTN","THY1","CLDN5", "Area", "PECAM1","ACTA2","DCN")]
+
+p0 = ggplot(ctrl.expr, aes(x=Area, y=POSTN, color=Rep)) + geom_point() +
+  geom_smooth(method = "loess", se = F, span = 2,size=2,aes(color = Rep)) + theme_bw()
+
+ctrl.expr2 = melt(ctrl.expr2, id="Area")  
+p2 = ggplot(ctrl.expr2, aes(x=Area, y=value, color=variable)) + geom_point() + ylim(0,40) +
+  geom_smooth(method = "loess", se = F, span = 2,size=2,aes(color = variable)) + theme_bw()
+
+ctrl.expr <- data.frame(get.exp(bp=bp.res,
+                        state.or.type="type",
+                        cell.name="SMC"))
+ctrl.meta = expand.grid(Area = c("EC", "M1", "M2", "Adv"),
+                        replicates = c(1, 2, 3, 4, 5))
+ctrl.expr$Area = ctrl.meta$Area
+#ctrl.expr$Rep = ctrl.meta$replicates
+ctrl.expr2 = ctrl.expr[,c("POSTN","THY1","CLDN5", "Area", "PECAM1","ACTA2","DCN")]
+
+p0 = ggplot(ctrl.expr, aes(x=Area, y=POSTN, color=Rep)) + geom_point() +
+  geom_smooth(method = "loess", se = F, span = 2,size=2,aes(color = Rep)) + theme_bw()
+
+ctrl.expr2 = melt(ctrl.expr2, id="Area")  
+p3 = ggplot(ctrl.expr2, aes(x=Area, y=value, color=variable)) + geom_point() + ylim(0,40) +
+  geom_smooth(method = "loess", se = F, span = 2,size=2,aes(color = variable)) + theme_bw()
+
+ctrl.expr <- data.frame(get.exp(bp=bp.res,
+                        state.or.type="type",
+                        cell.name="PC"))
+ctrl.meta = expand.grid(Area = c("EC", "M1", "M2", "Adv"),
+                        replicates = c(1, 2, 3, 4, 5))
+ctrl.expr$Area = ctrl.meta$Area
+#ctrl.expr$Rep = ctrl.meta$replicates
+ctrl.expr2 = ctrl.expr[,c("POSTN","THY1","CLDN5", "Area", "PECAM1","ACTA2","DCN")]
+
+p0 = ggplot(ctrl.expr, aes(x=Area, y=POSTN, color=Rep)) + geom_point() +
+  geom_smooth(method = "loess", se = F, span = 2,size=2,aes(color = Rep)) + theme_bw()
+
+ctrl.expr2 = melt(ctrl.expr2, id="Area")  
+p4 = ggplot(ctrl.expr2, aes(x=Area, y=value, color=variable)) + geom_point() + ylim(0,40) +
+  geom_smooth(method = "loess", se = F, span = 2,size=2,aes(color = variable)) + theme_bw()
+
+
+ggplot(df, aes(x = "", y = perc, fill = answer)) +
+  geom_col() +
+  coord_polar(theta = "y")
+
+##########################################
+
+cells = get.exp(bp=bp.res,
+        state.or.type="type", cell.name = c("SMC","FB","FBMC","EC"))
+mtx = apply(cells, 2, function(i) i)
+rn = sapply(c("SMC", "FB", "FBMC", "EC"), function(i) paste0(i,"_",rownames(cells[,,1])))
+rownames(mtx) = rn
+ctrl_wta = CreateSeuratObject(t(mtx))
+ctrl.meta = expand.grid(Area = c("EC", "M1", "M2", "Adv"),
+                        replicates = c(1:20))
+ctrl_wta$Area = ctrl.meta$Area
+ctrl_wta$Area_num = as.numeric(ctrl_wta$Area)
+ctrl_wta$Replicate = substr(unlist(lapply(strsplit(rownames(ctrl_wta@meta.data), "_"), function(i) i[[2]])), 2,3)
+ctrl_wta$ROI = substr(unlist(lapply(strsplit(rownames(ctrl_wta@meta.data), "_"), function(i) i[[2]])), 8,9)
+ctrl_wta$ROI = str_remove(ctrl_wta$ROI, "^0+")
+ctrl_wta$map = paste0(ctrl_wta$Replicate, "_", ctrl_wta$ROI)
+
+nuclei$map = paste0(nuclei$SlideName, "_", nuclei$ROILabel)
+
+new_meta = merge(ctrl_wta@meta.data, nuclei, by.x = "map", by.y = "map")
+ctrl_wta@meta.data$ROI_counts = new_meta$AOINucleiCount
+ctrl_wta@assays$RNA@data = ctrl_wta@assays$RNA@counts * (ctrl_wta$ROI_counts / max(ctrl_wta$ROI_counts))
+ctrl_wta@assays$RNA@data = ctrl_wta@assays$RNA@counts
+
+FeatureScatter(ctrl_wta, feature1 = "Area_num", feature2 = "CLDN5", pt.size = .5, 
+               cols=dittoColors()) + geom_smooth(method = "loess", se = F, span = 2,size=2,
+                                                 aes(color = ctrl_wta$orig.ident))
+
+cells = get.exp(bp=bp.res3,
+         state.or.type="type", cell.name = c("PVM","PVM3","cDC","pDC"))
+mtx = apply(cells, 2, function(i) i)
+rn = sapply(c("PVM", "PVM3", "cDC", "pDC"), function(i) paste0(i,"_",rownames(cells[,,1])))
+rownames(mtx) = rn
+ctrl_wta2 = CreateSeuratObject(t(mtx))
+ctrl.meta2 = expand.grid(Area = c("EC", "M1", "M2", "Adv"),
+                        replicates = c(1:16))
+ctrl_wta2$Area = ctrl.meta2$Area
+ctrl_wta2$Area_num = as.numeric(ctrl_wta2$Area)
+
+FeatureScatter(ctrl_wta2, feature1 = "Area_num", feature2 = "ACP5", pt.size = .5, 
+               cols=dittoColors()) + geom_smooth(method = "loess", se = F, span = 2,size=2,
+                                                 aes(color = ctrl_wta2$orig.ident))
+
+cells = get.exp(bp=bp.res2,
+        state.or.type="type", cell.name = c("SMC","FB","FBMC","EC", "Aneu1", "Aneu2"))
+mtx = apply(cells,2, function(i) i)
+rn = sapply(c("SMC", "FB", "FBMC", "EC", "Aneu1", "Aneu2"), function(i) paste0(i,"_",rownames(cells[,,1])))
+rownames(mtx) = rn
+aneu_wta = CreateSeuratObject(t(mtx))
+aneu.meta = expand.grid(Area = c("EC", "M1", "M2", "Adv"),
+                        replicates = c(1:24))
+aneu_wta$Area = aneu.meta$Area
+aneu_wta$Area_num = as.numeric(aneu_wta$Area)
+aneu_wta$Replicate = substr(unlist(lapply(strsplit(rownames(aneu_wta@meta.data), "_"), function(i) i[[2]])), 2,3)
+aneu_wta$ROI = substr(unlist(lapply(strsplit(rownames(aneu_wta@meta.data), "_"), function(i) i[[2]])), 8,9)
+aneu_wta$ROI = str_remove(aneu_wta$ROI, "^0+")
+aneu_wta$map = paste0(aneu_wta$Replicate, "_", aneu_wta$ROI)
+
+nuclei$map = paste0(nuclei$SlideName, "_", nuclei$ROILabel)
+
+new_meta = merge(aneu_wta@meta.data, nuclei, by.x = "map", by.y = "map")
+aneu_wta@meta.data$ROI_counts = new_meta$AOINucleiCount
+aneu_wta@assays$RNA@data = aneu_wta@assays$RNA@counts * (aneu_wta$ROI_counts / max(aneu_wta$ROI_counts))
+aneu_wta@assays$RNA@data = aneu_wta@assays$RNA@counts
+
+FeatureScatter(aneu_wta, feature1 = "Area_num", feature2 = "POSTN", pt.size = .5, 
+               cols=dittoColors()) + geom_smooth(method = "loess", se = F, span = 2,size=2,
+                                                 aes(color = aneu_wta$orig.ident))
+
+cells = get.exp(bp=bp.res4,
+         state.or.type="type", cell.name = c("PVM","PVM3","cDC","pDC", "OC"))
+mtx = apply(cells,2, function(i) i)
+rn = sapply(c("PVM","PVM3","cDC","pDC", "OC"), function(i) paste0(i,"_",rownames(cells[,,1])))
+rownames(mtx) = rn
+aneu_wta2 = CreateSeuratObject(t(mtx))
+aneu.meta2 = expand.grid(Area = c("EC", "M1", "M2", "Adv"),
+                        replicates = c(1:20))
+aneu_wta2$Area = aneu.meta2$Area
+aneu_wta2$Area_num = as.numeric(aneu_wta2$Area)
+
+FeatureScatter(aneu_wta2, feature1 = "Area_num", feature2 = "ACP5", pt.size = .5, 
+               cols=dittoColors()) + geom_smooth(method = "loess", se = F, span = 2,size=2,
+                                                 aes(color = aneu_wta2$orig.ident))
+
+
+ctrl_wta$Condition = "CTRL"
+aneu_wta$Condition = "Aneu"
+
+merged_wta = merge(ctrl_wta, aneu_wta)
+merged_wta@assays$RNA@data = merged_wta@assays$RNA@counts * 
+  (merged_wta$ROI_counts / max(merged_wta$ROI_counts))
+
+merged_wta = NormalizeData(merged_wta, scale.factor = 1e6)
+
+
+top25 = head(aneu.markers[order(aneu.markers$avg_log2FC, decreasing = T),], 25)
+bot25 = head(aneu.markers[order(aneu.markers$avg_log2FC, decreasing = F),], 25)
+
+merged_wta@assays$RNA@data = merged_wta@assays$RNA@counts
+merged_wta <- AddModuleScore(merged_wta, features = list(top25$gene, bot25$gene), 
+                              name = c("Uncorrected_Aneu", "Uncorrected_Aneu"))
+merged_wta <- AddModuleScore(merged_wta, features = list(rownames(up), rownames(down)), 
+                              name = c("Unrupture", "Rupture"))
+
+FeatureScatter(merged_wta, feature1 = "Area_num", feature2 = "POSTN", pt.size = 2,group.by = 'orig.ident',
+               cols=dittoColors()) + geom_smooth(method = "loess", se = F, span = 2,size=2,
+                                                 aes(color = merged_wta$orig.ident))
+
+p1 = FeatureScatter(merged_wta, feature1 = "Area_num", feature2 = "Unrupture1", pt.size = 2,
+               group.by = 'orig.ident',cols=dittoColors(), jitter = T) + 
+  geom_smooth(method = "loess", se = F, span = 2,size=2, aes(color = merged_wta$orig.ident))
+p2 = FeatureScatter(merged_wta, feature1 = "Area_num", feature2 = "Rupture1", pt.size = 2,
+               group.by = 'orig.ident',cols=dittoColors(), jitter = T) + 
+  geom_smooth(method = "loess", se = F, span = 2,size=2, aes(color = merged_wta$orig.ident))
+
+
+
+
+p1 = FeatureScatter(merged_wta, feature1 = "Area_num", feature2 = "Uncorrected_Aneu1", pt.size = 2,
+               group.by = 'orig.ident',cols=dittoColors(), jitter = T) + 
+  geom_smooth(method = "loess", se = F, span = 2,size=2, aes(color = merged_wta$orig.ident))
+p2 = FeatureScatter(merged_wta, feature1 = "Area_num", feature2 = "Uncorrected_Aneu2", pt.size = 2,
+               group.by = 'orig.ident',cols=dittoColors(), jitter = T) + 
+  geom_smooth(method = "loess", se = F, span = 2,size=2, aes(color = merged_wta$orig.ident))
+
+pdf("nano_deconv_sig.pdf", width = 14)
+p1+p2
+dev.off()
+
+p1 = FeatureScatter(merged_wta, feature1 = "Area_num", feature2 = "POSTN", pt.size = 2,
+               group.by = 'orig.ident',cols=dittoColors(), jitter = T) + 
+  geom_smooth(method = "loess", se = F, span = 2,size=2, aes(color = merged_wta$orig.ident))
+p2 = FeatureScatter(merged_wta, feature1 = "Area_num", feature2 = "THY1", pt.size = 2,
+               group.by = 'orig.ident',cols=dittoColors(), jitter = T) + 
+  geom_smooth(method = "loess", se = F, span = 2,size=2, aes(color = merged_wta$orig.ident))
+
+pdf("nano_deconv_markers.pdf", width = 14)
+p1+p2
+dev.off()
+
+p1 = VlnPlot(merged_wta, features = c("CNN1","CLDN5","DCN","CCL19","MYH11","LUM"),
+             cols = dittoColors())
+pdf("nano_cell_markers.pdf", width = 14)
+p1
+dev.off()
+
+
+
+ctrl_wta2$Condition = "CTRL"
+aneu_wta2$Condition = "Aneu"
+
+merged_wta2 = merge(ctrl_wta2, aneu_wta2)
+
+p1 = FeatureScatter(merged_wta2, feature1 = "Area_num", feature2 = "ACP5", pt.size = 2,group.by = 'orig.ident',
+               cols=dittoColors()) + geom_smooth(method = "loess", se = F, span = 2,size=2,
+                                                 aes(color = merged_wta2$orig.ident))
+
+p2 = FeatureScatter(merged_wta2, feature1 = "Area_num", feature2 = "SPP1", pt.size = 2,group.by = 'orig.ident',
+               cols=dittoColors()) + geom_smooth(method = "loess", se = F, span = 2,size=2,
+                                                 aes(color = merged_wta2$orig.ident))
+
+p3 = FeatureScatter(merged_wta2, feature1 = "Area_num", feature2 = "MRC1", pt.size = 2,group.by = 'orig.ident',
+               cols=dittoColors()) + geom_smooth(method = "loess", se = F, span = 2,size=2,
+                                                 aes(color = merged_wta2$orig.ident))
+
+p4 = FeatureScatter(merged_wta2, feature1 = "Area_num", feature2 = "MMP9", pt.size = 2,group.by = 'orig.ident',
+               cols=dittoColors()) + geom_smooth(method = "loess", se = F, span = 2,size=2,
+                                                 aes(color = merged_wta2$orig.ident))
+pdf("nano_immune_markers.pdf", height = 12, width = 14)
+p1+p4+p2+p3
+dev.off()
+```
+
 
 # Plotting for the paper
 ```{r}
@@ -515,7 +1243,23 @@ top5 = c("DCN",'LUM',"KCNJ8",'ACTA2','CNN1','LYZ','MRC1','F13A1','CD1C','CD8A','
          'SPP1','GNLY','PLP1','PTPRZ1','NRXN1','GPC6','LAMA2','CCL19','IGFBP5','TSHZ2',"GFAP",
          'HBB','HBA1','HBA2','APOD','MYH11','DLC1','NKG7','CCL5','IGFBP7','COL1A2','OLIG1',"GPNMB",
          'SPARC',"BGN","PTGDS","JCHAIN","ZFHX3",'CXCR4',"CD79A","CCL2","PTPRK","VCAN","P2RY13")
+
+pdf('dotplot.pdf', width = 12, height = 8)
+
+top5 = c("CLDN5",'PODXL',"ABCC9","HIGD1B","CNN1","MYH11",'KCNT2','CCL19',"GPC6",
+         "APOD","LAMA2",'COL1A1',"LUM",'POSTN',"CD3D",'CD8A','CD8B','GNLY',"IGLC2",
+         "BACH2",'JCHAIN','CD1C','MRC1',"LYVE1","EREG",'LYZ',"ACP5","MMP9",'GFAP',
+         "AQP4","SCN7A","CDH19","PLP1","OLIG1","HBB","HBA2")
+ord = c("EC1", "EC2", "EC3", "PC", "SMC1","SMC2","SMC3","FBMC1","FBMC2","FBMC3",
+        "FB1","FB2","Aneu1","Aneu2","Ly1","Ly2","Ly3","Ly4","BC","pDC","cDC","PVM1",
+        "PVM2","PVM3","PVM4",'OC',"AC",'Neu','OL','RBC')
+levels(merged2) = ord
+DotPlot(merged2, features = top5) + scale_color_viridis_c() + RotatedAxis()
+dev.off()
+
 Clustered_DotPlot(merged2, features = top5, k = 9,row_label_size = 13)
+DotPlot_scCustom(seurat_object = merged2, features = top5, x_lab_rotate = TRUE)
+DotPlot(merged2, features = top5) + scale_color_viridis_c() + RotatedAxis()
 dev.off()
 
 
@@ -535,6 +1279,36 @@ EnhancedVolcano(meta2,
     col=c('black', 'black', 'black', 'red3'),
     colAlpha = 1)
 dev.off()
+
+pdf("sample_cell_proportion.pdf")
+dittoBarPlot(merged2, var='ident' ,group.by = 'Sample', color.panel = 
+               DiscretePalette_scCustomize(num_colors = 36, palette = "polychrome"))
+dev.off()
+
+
+
+pdf("aneu1_2_vln.pdf", height = 5)
+test = subset(merged2, idents=c("Aneu1","Aneu2"))
+
+VlnPlot(test, features = c("CNN1","POSTN"), assay = 'RNA', pt.size = 0,cols=dittoColors())
+dev.off()
+
+
+test = subset(merged2, subset=Condition == "Aneu")
+test[['percent.mt']] = PercentageFeatureSet(test, pattern = "MT-",assay = 'RNA')
+pdf('qc.pdf')
+VlnPlot(test, features = c("nCount_RNA","nFeature_RNA", "percent.mt"), 
+        ncol = 3, group.by = 'Sample', pt.size = 0, cols=dittoColors())
+dev.off()
+
+pdf("barplot_individual_clusters.pdf")
+dittoBarPlot(merged2, var='clusters', group.by = 'Sample')
+dev.off()
+
+pdf("umap_individuals.pdf")
+DimPlot(merged2, group.by = 'Sample', cols = dittoColors()) + NoAxes()
+dev.off()
+
 
 
 DefaultAssay(merged2) = "SCT"
@@ -566,6 +1340,13 @@ combined_df2 = combined_df[combined_df$combined_p < .000000001,]
 combined_results_graph(combined_df2)
 
 aneu.markers = FindMarkers(merged2, ident.1 = "Aneu1", ident.2 = "Aneu2")
+
+aneu1.markers = FindMarkers(merged2, ident.1 = "Aneu1", only.pos = T)
+aneu2.markers = FindMarkers(merged2, ident.1 = "Aneu2", only.pos = T)
+aneu1.markers = aneu1.markers[aneu1.markers$p_val_adj < .05,]
+aneu2.markers = aneu2.markers[aneu2.markers$p_val_adj < .05,]
+
+
 aneu.markers = FindMarkers(merged2, ident.1 = "Pos", ident.2 = "Neg", 
                            subset.ident = "Aneu1", group.by = 'Scissor')
 aneu.markers$gene = rownames(aneu.markers)
@@ -590,7 +1371,7 @@ EnhancedVolcano(aneu.markers,
     y = 'p_val_adj',
     title = 'Aneu1 versus Aneu2',
     pCutoff = 10e-50,
-    FCcutoff = 1,
+    FCcutoff = 1,xlim=c(-3,3),
     pointSize = 3.0,
     labSize = 6.0,
     col=c('black', 'black', 'black', 'red3'),
@@ -608,9 +1389,322 @@ numbers <- length(infos$Scissor_pos) + length(infos$Scissor_neg)
 result1 <- reliability.test(X, Y, network, alpha = 0.05, family = "cox", cell_num = numbers, n = 10, nfold = 10)
 
 
+evaluate_summary = evaluate.cell('/media/chang/HDD-1/chang/fastqs/aneu/Scissor.RData', 
+                                  infos, FDR = 0.05, bootstrap_n = 100)
+evaluate_summary[1:5,1:4]
+
+meta3 = merged@meta.data[rownames(evaluate_summary),]
+evaluate_summary$clusters = meta3$clusters
+evaluate_summary$Coefficient= evaluate_summary$Coefficient * -1
+colnames(evaluate_summary)[[1]] = "Mean"
+colnames(evaluate_summary)[[4]] = "Sig"
+colnames(evaluate_summary)[[11]] = "Probability"
+polychrome_pal <- DiscretePalette_scCustomize(num_colors = 30, palette = "polychrome")
+
+pdf("scissors_stats.pdf")
+ggplot(evaluate_summary, aes(x = Mean, y = Coefficient, color=clusters)) +geom_point() + theme_bw() + RotatedAxis() +scale_color_manual(values=polychrome_pal) + theme(text = element_text(size=20))
+dev.off()
+
+
+merged$Scissor2 = merged$Scissor
+merged$Scissor2[merged$Scissor2 == "BG"] = "Neg"
+aneu.upset = FindMarkers(merged, subset.ident = 'Aneu1', group.by = "Scissor2", 
+                   ident.1 = "Pos", ident.2 = 'Neg')
+cdc.upset = FindMarkers(merged, subset.ident = 'cDC', group.by = "Scissor2", 
+                   ident.1 = "Pos", ident.2 = 'Neg')
+fb1.upset = FindMarkers(merged, subset.ident = 'FB1', group.by = "Scissor2", 
+                   ident.1 = "Pos", ident.2 = 'Neg')
+fb2.upset = FindMarkers(merged, subset.ident = 'FB2', group.by = "Scissor2", 
+                   ident.1 = "Pos", ident.2 = 'Neg')
+oc.upset = FindMarkers(merged, subset.ident = 'OC', group.by = "Scissor2", 
+                   ident.1 = "Pos", ident.2 = 'Neg')
+pvm1.upset = FindMarkers(merged, subset.ident = 'PVM1', group.by = "Scissor2", 
+                   ident.1 = "Pos", ident.2 = 'Neg')
+pvm2.upset = FindMarkers(merged, subset.ident = 'PVM2', group.by = "Scissor2", 
+                   ident.1 = "Pos", ident.2 = 'Neg')
+pvm3.upset = FindMarkers(merged, subset.ident = 'PVM3', group.by = "Scissor2", 
+                   ident.1 = "Pos", ident.2 = 'Neg')
+pvm4.upset = FindMarkers(merged, subset.ident = 'PVM4', group.by = "Scissor2", 
+                   ident.1 = "Pos", ident.2 = 'Neg')
+rbc.upset = FindMarkers(merged, subset.ident = 'RBC', group.by = "Scissor2", 
+                   ident.1 = "Pos", ident.2 = 'Neg')
+listInput <- list(Aneu = rownames(aneu.upset), cDC = rownames(cdc.upset), FB1 = rownames(fb1.upset),
+                  FB2=rownames(fb2.upset),OC=rownames(oc.upset),PVM1 = rownames(pvm1.upset),
+                  PVM2=rownames(pvm2.upset),PVM3=rownames(pvm3.upset),PVM4=rownames(pvm4.upset))
+
+pdf("deg_scissor_upset.pdf",width = 10)
+upset(fromList(listInput), order.by = "freq",nsets = length(listInput), text.scale =2, nintersects = 22)
+dev.off()
+
+EnhancedVolcano(aneu,
+    lab = rownames(aneu),
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+    title = 'Pos versus Neg',
+    pCutoff = 1e-5,
+    FCcutoff = .5,
+    pointSize = 3.0, ylim=c(0,80),
+    labSize = 6.0,xlim=c(-2,1),
+    col=c('black', 'black', 'black', 'red3'),
+    colAlpha = 1)
+
+pdf("cellchat_aneu.pdf", height = 10, width = 5)
+rankNet(cellchat, mode = "comparison", stacked = T, do.stat = TRUE,color.use = c("Red",'lightgrey'))
+dev.off()
+
+pdf("cellchat_aneu_scissor.pdf", height = 9, width = 6)
+rankNet(cellchat2, mode = "comparison", stacked = T, do.stat = TRUE,color.use = c("Red",'lightgrey'), cutoff.pvalue = .2,font.size = 15)
+dev.off()
+
+pdf("postn_cellchat.pdf")
+pathways.show <- c("PERIOSTIN") 
+weight.max <- getMaxWeight(object.list, slot.name = c("netP"), 
+                           attribute = pathways.show) 
+par(mfrow = c(1,1), xpd=TRUE)
+for (i in 1:length(object.list)) {
+  netVisual_aggregate(object.list[[i]], signaling = pathways.show, layout = "circle", 
+                      edge.width.max = 10, signaling.name = paste(pathways.show, names(object.list)[i]))
+}
+dev.off()
+
+
+scissor_markers = FindMarkers(merged, group.by = 'Scissor', ident.1 = "Pos", ident.2 = "Neg")
+EnhancedVolcano(scissor_markers,
+    lab = rownames(scissor_markers),
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+    title = 'Pos versus Neg',
+    pCutoff = 1e-5,
+    FCcutoff = .5,
+    pointSize = 3.0, ylim=c(0,80),
+    labSize = 6.0,xlim=c(-2,1),
+    col=c('black', 'black', 'black', 'red3'),
+    colAlpha = 1)
+
+m_df<- msigdbr(species = "Homo sapiens", category = "H")
+fgsea_sets<- m_df %>% split(x = .$gene_symbol, f = .$gs_name)
+#oc.upset$score = oc.upset$avg_log2FC * -log(oc.upset$p_val_adj)
+ranks<- unlist(scissor_markers$avg_log2FC)
+names(ranks) = rownames(scissor_markers)
+fgseaRes<- fgsea(fgsea_sets, stats = ranks, nperm = 10000)
+fgseaResTidy <- fgseaRes %>%
+  as_tibble() %>%
+  arrange(desc(NES))
+pdf("GSEA_scissor.pdf")
+ggplot(fgseaResTidy %>% filter(padj < 0.05) %>% head(n= 20), aes(reorder(pathway, NES), NES)) +
+    geom_col(aes(fill= NES < 0)) +
+    coord_flip() +
+    labs(x="Pathway", y="Normalized Enrichment Score",
+         title="Hallmark pathways NES from GSEA") + 
+    theme_minimal()
+dev.off()
+
+pdf('complement.pdf')
+pathways.show <- c("COMPLEMENT") 
+weight.max <- getMaxWeight(object.list2, slot.name = c("netP"), 
+                           attribute = pathways.show) 
+par(mfrow = c(1,1), xpd=TRUE)
+for (i in 1:length(object.list)) {
+  netVisual_aggregate(object.list2[[i]], signaling = pathways.show, layout = "circle", 
+                      edge.width.max = 10, signaling.name = paste(pathways.show, names(object.list2)[i]))
+}
+dev.off()
+
+pdf("interaction_rupture.pdf", width = 10, height = 5)
+num.link <- sapply(object.list2, function(x) {rowSums(x@net$count) + colSums(x@net$count)-diag(x@net$count)})
+weight.MinMax <- c(min(num.link), max(num.link)) # control the dot size in the different datasets
+gg <- list()
+for (i in 1:length(object.list2)) {
+  gg[[i]] <- netAnalysis_signalingRole_scatter(object.list2[[i]], title = names(object.list2)[i], weight.MinMax = weight.MinMax) + ylim(0,7) + xlim(0,12)
+}
+patchwork::wrap_plots(plots = gg)
+dev.off()
+
+
+avg = avg$SCT[!grepl("ENSG", rownames(avg$SCT)),]
+write.table(avg, "/media/chang/HDD-1/chang/fastqs/aneu/spatial/mean_exp.csv",sep=',', quote=F)
+
+
+
 c("EC1","EC2","EC3","PC","SMC1","SMC2","SMC3","FBMC1","FBMC2","FBMC3","FB1","FB2",
   "BC","cDC","pDC","Ly1","Ly2","Ly3","Ly4","PVM1","PVM2","PVM4","PVM3","OC","AC",
   "Neur","OL")
+
+
+mono1 = subset(merged2, idents=c("FB1","FB2","Aneu1"))
+mono2 = subset(merged2, idents=c("SMC2","SMC3","PC","Aneu2"))
+mono3 = subset(merged2, idents=c("SMC1","FBMC1","FBMC3"))
+
+cds1 <- as.cell_data_set(mono1)
+cds1 <- cluster_cells(cds = cds1, reduction_method = "UMAP")
+cds1 <- learn_graph(cds1, use_partition = TRUE)
+
+cds2 <- as.cell_data_set(mono2)
+cds2 <- cluster_cells(cds = cds2, reduction_method = "UMAP")
+cds2 <- learn_graph(cds2, use_partition = TRUE)
+
+cds3 <- as.cell_data_set(mono3)
+cds3 <- cluster_cells(cds = cds3, reduction_method = "UMAP")
+cds3 <- learn_graph(cds3, use_partition = TRUE)
+
+s1 = CellSelector(DimPlot(mono1))[[1]]
+s2 = CellSelector(DimPlot(mono2))[[1]]
+s3 = CellSelector(DimPlot(mono3))[[1]]
+
+cds1 <- order_cells(cds1, reduction_method = "UMAP", root_cells = s1)
+cds2 <- order_cells(cds2, reduction_method = "UMAP", root_cells = s2)
+cds3 <- order_cells(cds3, reduction_method = "UMAP", root_cells = s3)
+
+plot_cells(
+  cds = cds1,
+  color_cells_by = "pseudotime",
+  show_trajectory_graph = TRUE
+)
+
+merged2 <- AddMetaData(
+  object = merged2,
+  metadata = cds1@principal_graph_aux@listData$UMAP$pseudotime,
+  col.name = "Aneu1_Monocle"
+)
+merged2 <- AddMetaData(
+  object = merged2,
+  metadata = cds2@principal_graph_aux@listData$UMAP$pseudotime,
+  col.name = "Aneu2_Monocle"
+)
+merged2 <- AddMetaData(
+  object = merged2,
+  metadata = cds3@principal_graph_aux@listData$UMAP$pseudotime,
+  col.name = "SMC_Monocle"
+)
+
+FeaturePlot(merged2, c("Aneu1_Monocle", "Aneu2_Monocle","SMC_Monocle"), 
+            pt.size = 0.1) & scale_color_viridis()
+
+
+merged.monocle = subset(merged2, idents=c("FB1","FB2","Aneu1","SMC2",
+                                          "SMC3","PC","Aneu2"))
+FeaturePlot(merged.monocle, c("Aneu1_Monocle","Aneu2_Monocle"), 
+            pt.size = 0.1) & scale_color_viridis()
+
+merged.monocle$Monocle = merged.monocle$Aneu1_Monocle
+merged.monocle$Monocle[is.na(merged.monocle$Aneu1_Monocle)] = merged.monocle$Aneu2_Monocle[!is.na(merged.monocle$Aneu2_Monocle)]
+
+cells3 = CellSelector(FeaturePlot(merged.monocle, c("Monocle"), order=T, max.cutoff = 'q99',
+            pt.size = 0.1) & scale_color_viridis())
+merged.monocle2 = subset(merged.monocle, cells=cells3)
+
+FeaturePlot(merged.monocle2, c("Monocle"), order=T, max.cutoff = 'q99',
+            pt.size = 1) & scale_color_viridis()
+
+
+pdf("monocle_pseudotime2.pdf", width = 14)
+p1 = FeatureScatter(merged.monocle, feature1 = "Monocle", feature2 = "SERPINF1", pt.size = .5, 
+               cols=dittoColors()) + geom_smooth(method = "loess", se = F, span = 2,size=2,
+                                                 aes(color = merged.monocle$clusters))
+
+p2 = FeatureScatter(merged.monocle, feature1 = "Monocle", feature2 = "SFRP2", pt.size = .5, 
+               cols=dittoColors()) + geom_smooth(method = "loess", se = F, span = 2,size=2,
+                                                 aes(color = merged.monocle$clusters))
+p1+p2
+dev.off()
+
+pdf("monocle_umap.pdf")
+DimPlot(merged.monocle2, label=F, pt.size = 2, cols=dittoColors()) + NoAxes()
+dev.off()
+
+dittoDimPlot(merged.monocle2, trajectory.cluster.meta = "clusters",
+             add.trajectory.lineages = list(c("FB1","Aneu1"),c("SMC2","Aneu2"), c("FB1","FB2")), 
+             var='Monocle') + scale_color_viridis() + NoAxes()
+
+plot_genes_in_pseudotime(cds1,
+                         color_cells_by="pseudotime",
+                         min_expr=0.5)
+
+gene_fits <- fit_models(cds1, model_formula_str = "~pseudotime")
+fit_coefs <- coefficient_table(gene_fits)
+emb_time_terms <- fit_coefs %>% filter(term == "pseudotime")
+emb_time_terms = emb_time_terms %>% filter (q_value < 0.05) %>%
+         select(gene_id, term, q_value, estimate)
+emb_time_terms = emb_time_terms[order(emb_time_terms$q_value, decreasing = F),]
+
+genes = head(emb_time_terms$gene_id, 100)
+genes = genes[!grepl("MT-", genes)]
+genes = genes[!grepl("RPS", genes)]
+genes = genes[!grepl("RPL", genes)]
+genes = genes[!grepl("ENSG", genes)]
+
+pt.matrix <- as.matrix(mono1@assays$RNA@data[match(genes,rownames(mono1@assays$RNA@data)),order(pseudotime(cds1))])
+pt.matrix <- t(apply(pt.matrix,1,function(x){smooth.spline(x,df=3)$y}))
+pt.matrix <- t(apply(pt.matrix,1,function(x){(x-mean(x))/sd(x)}))
+rownames(pt.matrix) <- genes;
+ht <- Heatmap(
+  pt.matrix,
+  name                         = "z-score",
+  col                          = colorRamp2(seq(from=-2,to=2,length=11),rev(brewer.pal(11, "Spectral"))),
+  show_row_names               = TRUE,
+  show_column_names            = FALSE,
+  row_names_gp                 = gpar(fontsize = 10),
+  km = 1,
+  row_title_rot                = 0,
+  cluster_rows                 = TRUE,
+  cluster_row_slices           = FALSE,
+  cluster_columns              = FALSE)
+
+pdf("aneu1_monocle_heatmap.pdf", height = 10)
+print(ht)
+dev.off()
+
+##
+gene_fits2 <- fit_models(cds2, model_formula_str = "~pseudotime")
+fit_coefs <- coefficient_table(gene_fits2)
+emb_time_terms <- fit_coefs %>% filter(term == "pseudotime")
+emb_time_terms = emb_time_terms %>% filter (q_value < 0.05) %>%
+         select(gene_id, term, q_value, estimate)
+emb_time_terms = emb_time_terms[order(emb_time_terms$q_value, decreasing = F),]
+
+
+genes = head(emb_time_terms$gene_id, 100)
+genes = genes[!grepl("MT-", genes)]
+genes = genes[!grepl("RPS", genes)]
+genes = genes[!grepl("RPL", genes)]
+genes = genes[!grepl("ENSG", genes)]
+
+pt.matrix <- as.matrix(mono2@assays$RNA@data[match(genes,rownames(mono2@assays$RNA@data)),order(pseudotime(cds2))])
+pt.matrix <- t(apply(pt.matrix,1,function(x){smooth.spline(x,df=3)$y}))
+pt.matrix <- t(apply(pt.matrix,1,function(x){(x-mean(x))/sd(x)}))
+rownames(pt.matrix) <- genes;
+ht <- Heatmap(
+  pt.matrix,
+  name                         = "z-score",
+  col                          = colorRamp2(seq(from=-2,to=2,length=11),rev(brewer.pal(11, "Spectral"))),
+  show_row_names               = TRUE,
+  show_column_names            = FALSE,
+  row_names_gp                 = gpar(fontsize = 10),
+  km = 1,
+  row_title_rot                = 0,
+  cluster_rows                 = TRUE,
+  cluster_row_slices           = FALSE,
+  cluster_columns              = FALSE)
+ht
+
+pdf("aneu2_monocle_heatmap.pdf", height = 10)
+print(ht)
+dev.off()
+
+pdf("monocle_pseudotime_umap.pdf")
+FeaturePlot(merged.monocle2, order=T, max.cutoff = 'q99', features = 'Monocle', pt.size = 2) + NoAxes() + scale_color_viridis()
+dev.off()
+
+
+
+res =
+  merged2 |>
+  sccomp_glm( 
+   formula_composition = ~ Scissor2, 
+    formula_variability = ~ 1, 
+    Sample, 
+    clusters
+  )
 ```
 
 
