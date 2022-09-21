@@ -1,0 +1,45 @@
+---
+title: "Bayesprism"
+output: html_notebook
+---
+
+
+```{r}
+library(BayesPrism)
+library(Seurat)
+```
+
+```{r}
+bp = readRDS("~/bayes_prism_result_obj.rds")
+types = rownames(bp@prism@phi_cellType@phi)
+cells = get.exp(bp=bp,
+        state.or.type="type",cell.name = types)
+mtx = apply(cells,2, function(i) i)
+rn = sapply(types, function(i) paste0(i,"_",rownames(cells[,,1])))
+rownames(mtx) = rn
+bulk_seurat = CreateSeuratObject(t(mtx))
+bulk_seurat$Sample = unlist(lapply(strsplit(colnames(bulk_seurat), "_"), function(i) i[[2]]))
+bulk_seurat = subset(bulk_seurat, idents="LQ", invert=T)
+bulk_seurat = SCTransform(bulk_seurat, vst.flavor="v2", n_genes=NULL)
+bulk_seurat = RunPCA(bulk_seurat)
+bulk_seurat = RunUMAP(bulk_seurat, dims=1:30, min.dist = 1)
+DimPlot_scCustom(bulk_seurat, label=T, pt.size = 2) + NoAxes()
+
+
+meta = read.table("/media/chang/HDD-1/chang/fastqs/aneu/aneu_bulk/meta.txt", header=T)
+
+bulk_seurat$Condition = mapvalues(bulk_seurat$Sample, meta$Sample, meta$Condition)
+bulk_seurat$Sex = mapvalues(bulk_seurat$Sample, meta$Sample, meta$Sex)
+bulk_seurat$Area = mapvalues(bulk_seurat$Sample, meta$Sample, meta$Area)
+bulk_seurat$Age = mapvalues(bulk_seurat$Sample, meta$Sample, meta$Age)
+
+gwas_genes = c('SLC22A5','SLC22A4','P4HA2','SOX17','NT5C2',
+                'FGD6','NR2C1','PSMA4','BCAR1')
+
+VlnPlot_scCustom(bulk_seurat, features = gwas_genes,ncol = 3)
+Stacked_VlnPlot(seurat_object = bulk_seurat, features = gwas_genes, x_lab_rotate = TRUE)
+
+pdf("~/Aneu_paper/gwas_genes.pdf" ,width = 12)
+Stacked_VlnPlot(seurat_object = bulk_seurat, features = gwas_genes, x_lab_rotate = TRUE)
+dev.off()
+```
