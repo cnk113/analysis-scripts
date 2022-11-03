@@ -21,11 +21,13 @@ options(future.globals.maxSize= 8912896000)
 
 thal = readRDS("/media/chang/HDD-8/chang/aparna/thal.rds")
 
-
-samples = names(table(thal$Sample)[table(thal$Sample) > 500])
-thal = subset(thal, subset=Sample %in% samples)
-
 thal = SCTransform(thal, vst.flavor='v2', assay = "cleaned")
+
+saveRDS(thal,"/media/chang/HDD-8/chang/aparna/thal.rds")
+
+VariableFeatures(thal)[grepl("MT-", VariableFeatures(tha))]
+
+
 thal = RunPCA(thal)
 thal = RunHarmony(thal, group.by.vars = 'Sample', plot_convergence = T)
 thal = RunUMAP(thal, dims=1:50, reduction = 'harmony')
@@ -71,6 +73,86 @@ epend_genes = c("RSPH1","FOXJ1","GFAP","CRYAB")
 genes = c(area_genes, area_genes2, area_genes3, crabp1_genes, epend_genes,
           "MRC1","AIF1","P2RY12","CLDN5","DCN","DLC1","MKI67","SOX6","PTPRZ1",
           "AQP4","SOX4","VIM","SST",'TXN')
+```
+
+```{r}
+thal = readRDS("/media/chang/HDD-8/chang/aparna/thal.rds")
+first = subset(thal, subset=Sample %in% c("CS12","CS14","CS15","CS19","CS22","CS22_2"))
+first = SCTransform(first, vst.flavor='v2', assay='cleaned', variable.features.n = 2000)
+
+VariableFeatures(first) = VariableFeatures(first)[!grepl("MT-", VariableFeatures(first))]
+VariableFeatures(first) = VariableFeatures(first)[!grepl("MALAT1", VariableFeatures(first))]
+VariableFeatures(first) = VariableFeatures(first)[!grepl("RPS", VariableFeatures(first))]
+VariableFeatures(first) = VariableFeatures(first)[!grepl("RPL", VariableFeatures(first))]
+
+VariableFeaturePlot_scCustom(first, num_features = 2000) & ylim(0,3)
+
+first = RunPCA(first, npcs=20)
+first = RunHarmony(first, group.by.vars='Sample', assay.use = "SCT")
+first = RunUMAP(first, dims=1:20, reduction='harmony')
+first = FindNeighbors(first, dims=1:20, reduction='harmony')
+
+first = FindClusters(first, algorithm = 2, resolution = .5)
+
+test = wilcoxauc(first, seurat_assay = 'SCT')
+
+saveRDS(first, file='/media/chang/HDD-8/chang/aparna/first.rds')
+
+DimPlot_scCustom(first, group.by = 'Sample')
+DimPlot_scCustom(first, label=T)
+
+do_BoxPlot(sample = first, feature = "nCount_RNA") + ylim(500,10000)
+
+FeaturePlot(first, features = c("TCF7L2","MKI67","MEIS2","GAD2"), order=T,max.cutoff='q98') & NoAxes() & scale_color_viridis()
+
+
+```
+
+```{r}
+first <- SetupForWGCNA(
+  first,
+  gene_select = "fraction", # the gene selection approach
+  fraction = 0.01, # fraction of cells that a gene needs to be expressed in order to be included
+  wgcna_name = "cleaned" # the name of the hdWGCNA experiment
+)
+
+first <- MetacellsByGroups(
+  seurat_obj = first,reduction = 'harmony', target_metacells=2000,
+  group.by = c("SCT_snn_res.0.5"), # specify the columns in seurat_obj@meta.data to group by
+  k = 25,
+  max_shared = 10, # maximum number of shared cells between two metacells
+  ident.group = 'SCT_snn_res.0.5' # set the Idents of the metacell seurat object
+)
+
+first <- NormalizeMetacells(first)
+
+GetMetacellObject(first)@assays$cleaned@data
+
+
+first <- SetDatExpr(
+  first,
+  group_name = "SCT_snn_res.0.5", # the name of the group of interest in the group.by column
+  group.by='SCT_snn_res.0.5', # the metadata column containing the cell type info. This same column should have also been used in MetacellsByGroups
+  assay = 'cleaned', # using RNA assay
+  slot = 'data' # using normalized data
+)
+
+first <- TestSoftPowers(
+  first,
+  networkType = 'signed' # you can also use "unsigned" or "signed hybrid"
+)
+
+# plot the results:
+plot_list <- PlotSoftPowers(first)
+
+# assemble with patchwork
+wrap_plots(plot_list, ncol=2)
+
+first <- ConstructNetwork(
+  first, soft_power=9,
+  setDatExpr=FALSE,
+  tom_name = 'INH' # name of the topoligical overlap matrix written to disk
+)
 ```
 
 ```{r}
