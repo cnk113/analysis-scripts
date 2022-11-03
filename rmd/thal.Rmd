@@ -1,0 +1,90 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(Seurat)
+library(dittoSeq)
+library(harmony)
+library(SeuratWrappers)
+library(scCustomize)
+library(scds)
+library(presto)
+library(viridis)
+library(stringr)
+library(gpsFISH)
+```
+
+```{r}
+options(future.globals.maxSize= 8912896000)
+
+thal = readRDS("/media/chang/HDD-8/chang/aparna/thal.rds")
+
+
+samples = names(table(thal$Sample)[table(thal$Sample) > 500])
+thal = subset(thal, subset=Sample %in% samples)
+
+thal = SCTransform(thal, vst.flavor='v2', assay = "cleaned")
+thal = RunPCA(thal)
+thal = RunHarmony(thal, group.by.vars = 'Sample', plot_convergence = T)
+thal = RunUMAP(thal, dims=1:50, reduction = 'harmony')
+thal = FindNeighbors(thal, dims=1:50, reduction = 'harmony')
+thal = FindClusters(thal, resolution = .6, algorithm = 2)
+
+thal$SubArea = "Thalamus"
+thal$SubArea[grepl("dorsal",thal$orig.ident)] = "Dorsal"
+thal$SubArea[grepl("ventral",thal$orig.ident)] = "Ventral"
+thal$SubArea[grepl("caudal",thal$orig.ident)] = "Caudal"
+
+thal$Sex = "M"
+thal$Sex[thal$Sample == "CS19"] = "F"
+thal$Sex[thal$Sample == "CS22_3"] = "F"
+thal$Sex[thal$Sample == "GW14_Aparna"] = "F"
+thal$Sex[thal$Sample == "GW22T"] = "F"
+
+saveRDS(thal, file="/media/chang/HDD-9/chang/thal_gps.rds")
+
+markers = wilcoxauc(thal2,seurat_assay = 'SCT')
+top_markers(markers)
+
+Idents(thal) = thal$SCT_snn_res.0.6
+area = FindMarkers(thal, subset.ident = 4, group.by = 'SubArea',ident.1 = 'Ventral',ident.2 = 'Dorsal')
+head(area[order(area$avg_log2FC, decreasing = T),], 20)
+area_genes = c("FTH1","S100A6","LSAMP","PCDH9","SNTG1",
+               "ROBO2","NEFL","RBP1","PENK","CALB1","CDH9","CD247")
+
+area2 = FindMarkers(thal, subset.ident = 6, group.by = 'SubArea',ident.1 = 'Ventral',ident.2 = 'Dorsal')
+head(area2[order(area2$avg_log2FC, decreasing = T),], 20)
+area_genes2 = c("PKIB","TAC1")
+
+area3 = FindMarkers(thal, ident.1 = '30', only.pos = T,min.diff.pct = .25)
+head(area3[order(area3$avg_log2FC, decreasing = T),], 20)
+area_genes3 = c("CALB2", "TCF7L2")
+
+crabp1 = FindMarkers(thal, ident.1 = '32', only.pos = T,min.diff.pct = .25)
+head(crabp1[order(crabp1$avg_log2FC, decreasing = T),], 20)
+crabp1_genes = c("CRABP1","ST18","TAC3")
+
+epend_genes = c("RSPH1","FOXJ1","GFAP","CRYAB")
+
+genes = c(area_genes, area_genes2, area_genes3, crabp1_genes, epend_genes,
+          "MRC1","AIF1","P2RY12","CLDN5","DCN","DLC1","MKI67","SOX6","PTPRZ1",
+          "AQP4","SOX4","VIM","SST",'TXN')
+```
+
+```{r}
+gw19 = LoadVizgen("/media/chang/HDD-8/chang/aparna/vizgen/Processed/202210191506_gw23THAL061920CASEDSNOW_VMSC01801/region_0/")
+
+gw23 = LoadVizgen("/media/chang/HDD-8/chang/aparna/vizgen/Processed/202210191506_gw23THAL061920CASEDSNOW_VMSC01801/region_0/")
+```
+
+```{r}
+X_center <- rowMeans(thal@assays$RNA@data[VariableFeatures(thal),])
+X_scale <- proxyC::rowSds(thal@assays$RNA@data[VariableFeatures(thal),])
+retval <- irlba::irlba(A = t(thal@assays$RNA@data[VariableFeatures(thal),]), 
+                       nv = 50, center = X_center, scale = X_scale)
+retval$x <- retval$u %*% diag(retval$d)
+merged[['pca']] = CreateDimReducObject(retval$x, key='pca_')
+rownames(merged[["pca"]]@cell.embeddings) <- Cells(merged)
+```

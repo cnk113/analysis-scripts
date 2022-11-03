@@ -48,7 +48,10 @@ def buildAnndataFromStar(path, barcode_path=None, batch=None):
     # Build AnnData object to be used with ScanPy and ScVelo
     adata = anndata.AnnData(X = X, obs = obs, var = var,
                             layers = {'spliced': spliced, 'unspliced': unspliced, 'ambiguous': ambiguous})
+
     adata.var_names_make_unique()
+
+    sc.pp.filter_genes(adata, min_cells=1)
 
     # Run dropkick
     adata_model = dk.dropkick(adata, n_jobs=5)
@@ -63,8 +66,7 @@ def buildAnndataFromStar(path, barcode_path=None, batch=None):
 
     scar = model(raw_count = raw_counts,
                  ambient_profile = ambient_profile,
-                 feature_type='mRNA',
-                 sparsity=1)
+                 feature_type='mRNA')
     scar.train(epochs=400,
                batch_size=64,
                verbose=True)
@@ -103,14 +105,17 @@ def buildAnndataFromStar(path, barcode_path=None, batch=None):
              batch_size=64,
              verbose=True)
 
-        # Subset based on overlap
-        adata = adata[raw_counts.columns]
-
         sgRNAs.inference(cutoff=3)
-        adata.obsm["X_scar_assignment_3"] = sgRNAs.feature_assignment
+        adata.obs["X_scar_assignment_3"] = "NA"
+        adata.obs["X_scar_assignment_3_n_BC"] = "NA"
+        adata.obs.loc[raw_counts.columns,"X_scar_assignment_3"] = sgRNAs.feature_assignment.sgRNAs.astype(str)
+        adata.obs.loc[raw_counts.columns,"X_scar_assignment_3_n_BC"] = sgRNAs.feature_assignment.n_sgRNAs.astype(str)
 
         sgRNAs.inference(cutoff=10)
-        adata.obsm["X_scar_assignment_10"] = sgRNAs.feature_assignment
+        adata.obs["X_scar_assignment_10"] = "NA"
+        adata.obs["X_scar_assignment_10_n_BC"] = "NA"
+        adata.obs.loc[raw_counts.columns,"X_scar_assignment_10"] = sgRNAs.feature_assignment.sgRNAs.astype(str)
+        adata.obs.loc[raw_counts.columns,"X_scar_assignment_10_n_BC"] = sgRNAs.feature_assignment.n_sgRNAs.astype(str)
     if batch:
         adata.obs["Batch"] = batch
     return adata.copy()

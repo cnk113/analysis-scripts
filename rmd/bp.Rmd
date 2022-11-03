@@ -36,8 +36,23 @@ bulk_seurat$Age = mapvalues(bulk_seurat$Sample, meta$Sample, meta$Age)
 gwas_genes = c('SLC22A5','SLC22A4','P4HA2','SOX17','NT5C2',
                 'FGD6','NR2C1','PSMA4','BCAR1')
 
+# Use raw counts
+bulk_seurat = AddModuleScore(bulk_seurat, features = list(gwas_genes, 
+                                                          setdiff(rownames(bulk_seurat), gwas_genes)))
+bulk_seurat <- AddModuleScore_UCell(bulk_seurat, maxRank=15000, features = list(gwas_genes, 
+                                                          setdiff(rownames(bulk_seurat), gwas_genes)))
+bulk_seurat <- SmoothKNN(bulk_seurat, reduction="pca",
+                         signature.names = list(gwas_genes, setdiff(rownames(bulk_seurat), gwas_genes)))
+VlnPlot_scCustom(bulk_seurat, features = "signature_1_UCell",ncol = 1)
+
+
 VlnPlot_scCustom(bulk_seurat, features = gwas_genes,ncol = 3)
 Stacked_VlnPlot(seurat_object = bulk_seurat, features = gwas_genes, x_lab_rotate = TRUE)
+
+
+pdf("~/Aneu_paper/gwas_module.pdf" ,width = 12)
+VlnPlot_scCustom(bulk_seurat, features = "Cluster1",ncol = 1) & ylim(-100,100)
+dev.off()
 
 pdf("~/Aneu_paper/gwas_genes.pdf" ,width = 12)
 Stacked_VlnPlot(seurat_object = bulk_seurat, features = gwas_genes, x_lab_rotate = TRUE)

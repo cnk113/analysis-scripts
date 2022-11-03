@@ -199,15 +199,111 @@ gw = lapply(gw, function(x){
 ```
 
 ```{r}
-#DimPlot(gw2, label=T , cols=dittoColors(), pt.size=1) + NoAxes()
-#FeaturePlot(gw2, features = c( 'MKI67','HOPX','GLI3',"EOMES","DLX2",'NEUROD2',"AQP4","OLIG1", 'PTPRZ1'), pt.size = 1, order=T,max.cutoff = 'q98') & NoAxes() #& scale_color_viridis_c()
-#dittoBarPlot(gw2, group.by = 'clone', var='ident') + NoAxes()
-#dittoBarPlot(gw2, group.by = 'ident', var='clone') + NoLegend()
+sticr_mtx = read.csv("/media/chang/HDD-8/chang/cloneseq/matrix.csv", row.names = 1)
+sticr = CreateSeuratObject(sticr_mtx)
+meta = read.csv("/media/chang/HDD-8/chang/cloneseq/meta.csv")
+meta$X = NULL
+sticr@meta.data = cbind(sticr@meta.data, meta)
+saveRDS(sticr,file="/media/chang/HDD-8/chang/cloneseq/seurat.rds")
+
+sticr = readRDS("/media/chang/HDD-8/chang/cloneseq/seurat.rds")
+sticr[['percent.mt']] = PercentageFeatureSet(sticr, pattern = "MT-",assay = 'RNA')
+sticr = subset(sticr, subset=nCount_RNA>=500 & percent.mt < 10)
+sticr$Sample = "GW15_rep1"
+sticr$Sample[grepl("GW15_rep2", sticr$Batch)] = "GW15_rep2"
+sticr$Sample[grepl("GW15_rep3", sticr$Batch)] = "GW15_rep3"
+sticr$Sample[grepl("GW15_rep4", sticr$Batch)] = "GW15_rep4"
+sticr$Sample[grepl("GW15_rep5", sticr$Batch)] = "GW15_rep5"
+sticr$Sample[grepl("GW18", sticr$Batch)] = "GW18"
+sticr$Area = "Cortex"
+sticr$Area[grepl("MGE", sticr$Batch)] = "MGE"
+sticr$Area[grepl("PFC", sticr$Batch)] = "PFC"
+sticr$Area[grepl("V1", sticr$Batch)] = "V1"
+
+sticr$clone = paste0(sticr$Sample, "_", sticr$X_scar_assignment_3)
+
+sticr$time_info = "GW15"
+sticr$time_info[sticr$Sample == "GW18"] = "GW18"
+
+saveRDS(sticr, file='/media/chang/HDD-8/chang/cloneseq/seurat.rds')
+
+DimPlot_scCustom(sticr, group.by = "Sample")
+p1 = hist(table(sticr$short_clone), breaks=500, col="red",ylim = c(0,10), xlim=c(0,80))
+```
+
+
+```{r}
+passed_clone = names(table(sticr$clone)[table(sticr$clone) >= 2])
+passed_clone = passed_clone[!grepl("NA",passed_clone)]
+sticr_gw18 = subset(sticr, subset = clone %in% passed_clone & 
+                      Sample == "GW18")
+
+sticr_gw18 = SCTransform(sticr_gw18, vst.flavor='v2', 
+                         n_genes=NULL, ncells=NULL);gc();
+sticr_gw18 = RunPCA(sticr_gw18, npcs=30)
+sticr_gw18 = RunUMAP(sticr_gw18, dims=1:30)
+sticr_gw18 = FindNeighbors(sticr_gw18, dims=1:30)
+sticr_gw18 = FindClusters(sticr_gw18, algorithm = 2, resolution = 1)
+
+saveRDS(sticr_gw18, file='/media/chang/HDD-8/chang/cloneseq/seurat_gw18.rds')
+
+markers_gw18 = FindAllMarkers(sticr_gw18, only.pos = T)
+
+test_gw18 = wilcoxauc(sticr_gw18, seurat_assay = 'SCT')
+
+DimPlot_scCustom(sticr_gw18, label=T)
+DimPlot_scCustom(sticr_gw18, group.by = "Area")
+dittoBarPlot(sticr_gw18, var='Area', group.by = 'ident')
+
 ```
 
 ```{r}
-p1 = hist(table(gw[[8]]$short_clone), breaks=500, col="red",ylim = c(0,10), xlim=c(0,80))
-length(table(gw[[8]]$clone)[table(gw[[8]]$clone) >= 200])
-#passed_clone = names(table(gw$clone)[table(gw$clone) >= 300])
-#gw2 = subset(gw, subset = clone %in% passed_clone)
+passed_clone = names(table(sticr$clone)[table(sticr$clone) >= 2])
+passed_clone = passed_clone[!grepl("NA",passed_clone)]
+sticr_gw15 = subset(sticr, subset = clone %in% passed_clone & 
+                      time_info == "GW15")
+#sticr_gw15 = subset(sticr_gw15, subset=percent.mt<5)
+
+sticr_gw15_list = SplitObject(sticr_gw15, split.by = 'Sample')
+for (i in names(sticr_gw15_list)) {
+    sticr_gw15_list[[i]] <- SCTransform(sticr_gw15_list[[i]], vst.flavor='v2',
+                                        ncells=NULL, n_genes=NULL)
+}
+features <- SelectIntegrationFeatures(object.list = sticr_gw15_list, nfeatures = 3000)
+sticr_gw15_list <- PrepSCTIntegration(object.list = sticr_gw15_list, anchor.features = features)
+
+reference_dataset <- which(names(sticr_gw15_list) == "GW15_rep1")
+
+anchors <- FindIntegrationAnchors(object.list = sticr_gw15_list, normalization.method = "SCT", 
+    anchor.features = features, reference = reference_dataset)
+sticr_gw15 <- IntegrateData(anchorset = anchors, normalization.method = "SCT")
+
+sticr_gw15 <- RunPCA(object = sticr_gw15, verbose = FALSE)
+sticr_gw15 <- RunUMAP(object = sticr_gw15, dims = 1:30)
+sticr_gw15 <- FindNeighbors(sticr_gw15, dims=1:30)
+sticr_gw15 <- FindClusters(sticr_gw15, algorithm = 2, resolution = .6)
+
+saveRDS(sticr_gw15, file='/media/chang/HDD-8/chang/cloneseq/seurat_gw15.rds')
+
+
+markers_gw15 = FindAllMarkers(sticr_gw15, only.pos = T)
+
+test_gw15 = wilcoxauc(sticr_gw15, seurat_assay = 'SCT')
+
+test = FindMarkers(sticr_gw15, ident.1 = 10, ident.2 = 9, only.pos = T)
+
 ```
+
+```{r}
+early_mtx = read.csv("/media/chang/HDD-8/chang/cloneseq/embo/matrix.csv", row.names = 1)
+early = CreateSeuratObject(early_mtx)
+meta = read.csv("/media/chang/HDD-8/chang/cloneseq/embo/meta.csv")
+meta$X = NULL
+early@meta.data = cbind(early@meta.data, meta)
+
+saveRDS(early,file="/media/chang/HDD-8/chang/cloneseq/early.rds")  
+
+early[['percent.mt']] = PercentageFeatureSet(early, pattern = "MT-",assay = 'RNA')
+early = subset(early, subset=nFeature_RNA >= 500 & percent.mt < 10)
+```
+
