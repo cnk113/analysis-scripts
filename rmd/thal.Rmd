@@ -145,11 +145,10 @@ mouse_markers <- lapply(1:23, function(i) read_excel("~/thal_table.xlsx", sheet 
 names(mouse_markers) = openxlsx::getSheetNames("~/thal_table.xlsx")
 
 sigs = lapply(mouse_markers, function(i){
-  toupper(i$Gene[1:15])
+  genes = toupper(i$Gene[1:100])
+  intersect(genes, rownames(first))[1:10]
 })
 
-first = UCell::AddModuleScore_UCell(first, features = sigs, assay = 'SCT')
-uc = colnames(first@meta.data[grepl("UCell", colnames(first@meta.data))])
 saveRDS(first, file='/media/chang/HDD-8/chang/aparna/first.rds')
 ```
 
@@ -237,6 +236,13 @@ deg = deg[!grepl("RPL",deg$gene),]
 SCpubr::do_GroupwiseDEPlot(sample = first,
                            de_genes = deg, top_genes = 4)
 
+first = UCell::AddModuleScore_UCell(first, features = sigs, assay = 'SCT')
+uc = colnames(first@meta.data[grepl("UCell", colnames(first@meta.data))])
+names(sigs) = uc
+
+SCpubr::do_EnrichmentHeatmap(sample = first, group.by = 'clusters',flavor = "UCell",
+                                  input_gene_list = sigs, ncores = 16, )
+
 pdf('/media/chang/HDD-8/chang/aparna/pdfs/first_sig_scores.pdf', width = 10)
 FeaturePlot(first, order=T, max.cutoff = 'q98', ncol = 3,
             features = c("AD.AV.AM_UCell","RT_UCell","LD_UCell","ZI_UCell",
@@ -295,9 +301,6 @@ SCpubr::do_TFActivityPlot(sample = first,
                                  activities = activities,
                                  n_tfs = 40)
 
-
-SCpubr::do_EnrichmentHeatmap(sample = first, group.by = 'clusters',
-                                  input_gene_list = sigs)
 ```
 
 ```{r}
