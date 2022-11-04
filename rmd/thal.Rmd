@@ -94,17 +94,231 @@ first = FindNeighbors(first, dims=1:20, reduction='harmony')
 
 first = FindClusters(first, algorithm = 2, resolution = .5)
 
-test = wilcoxauc(first, seurat_assay = 'SCT')
 
+FeaturePlot(first, order=T,max.cutoff='q95', ncol=4,
+            features = c("TCF7L2","MKI67","MEIS2","ASCL1","FOXG1","SHH","NKX2-2","HES1","ISL1","OLIG3","OLIG2","GSX2","SIX3","GAD2","GATA3","LHX1")) & NoAxes() & scale_color_viridis()
+
+
+first$clusters = as.character(first$SCT_snn_res.0.5)
+first$clusters[first$clusters == 13] = "IN4"
+first$clusters[first$clusters == 12] = "FB1"
+first$clusters[first$clusters == 18] = "FB2"
+first$clusters[first$clusters == 19] = "RBC"
+first$clusters[first$clusters == 15] = "IN_NPC1"
+first$clusters[first$clusters == 10] = "IN_NPC2"
+first$clusters[first$clusters == 11] = "RBC"
+first$clusters[first$clusters == 2] = "IN1"
+first$clusters[first$clusters == 14] = "IN2"
+first$clusters[first$clusters == 9] = "IN3"
+first$clusters[first$clusters == 8] = "Div"
+first$clusters[first$clusters == 6] = "nEN"
+first$clusters[first$clusters == 0] = "EN1"
+first$clusters[first$clusters == 3] = "EN2"
+first$clusters[first$clusters == 16] = "EN1"
+first$clusters[first$clusters == 17] = "EN1"
+first$clusters[first$clusters == 7] = "EN_NPC1"
+first$clusters[first$clusters == 1] = "EN_NPC2"
+first$clusters[first$clusters == 4] = "EN_NPC3"
+first$clusters[first$clusters == 5] = "EN_NPC4"
+
+Idents(first) = first$clusters
 saveRDS(first, file='/media/chang/HDD-8/chang/aparna/first.rds')
+
+markers = FindAllMarkers(first ,only.pos = T)
+saveRDS(markers,file="/media/chang/HDD-8/chang/aparna/first_markers.rds")
+markers = readRDS("/media/chang/HDD-8/chang/aparna/first_markers.rds")
+
+top5_markers <- Extract_Top_Markers(marker_dataframe = markers, num_genes = 5, named_vector = FALSE,
+    make_unique = TRUE)
+
+Clustered_DotPlot(seurat_object = first, features = top5_markers, k = 9)
+
 
 DimPlot_scCustom(first, group.by = 'Sample')
 DimPlot_scCustom(first, label=T)
 
-do_BoxPlot(sample = first, feature = "nCount_RNA") + ylim(500,10000)
-
 FeaturePlot(first, features = c("TCF7L2","MKI67","MEIS2","GAD2"), order=T,max.cutoff='q98') & NoAxes() & scale_color_viridis()
 
+
+
+mouse_markers <- lapply(1:23, function(i) read_excel("~/thal_table.xlsx", sheet = i))
+names(mouse_markers) = openxlsx::getSheetNames("~/thal_table.xlsx")
+
+sigs = lapply(mouse_markers, function(i){
+  toupper(i$Gene[1:15])
+})
+
+first = UCell::AddModuleScore_UCell(first, features = sigs, assay = 'SCT')
+uc = colnames(first@meta.data[grepl("UCell", colnames(first@meta.data))])
+saveRDS(first, file='/media/chang/HDD-8/chang/aparna/first.rds')
+```
+
+```{r}
+first = readRDS("/media/chang/HDD-8/chang/aparna/first.rds")
+
+first_in = subset(first, idents=c("IN_NPC1","IN_NPC2","IN1","IN2","IN3"))
+
+cds <- as.cell_data_set(first_in)
+cds <- cluster_cells(cds)
+plot_cells(cds, color_cells_by = "partition", show_trajectory_graph = FALSE)
+
+cds <- learn_graph(cds)
+plot_cells(cds, label_groups_by_cluster = FALSE, label_leaves = FALSE, label_branch_points = FALSE)
+
+max.foxg1 <- which.max(unlist(FetchData((first_in), "ASCL1")))
+max.foxg1 <- colnames((first_in))[max.foxg1]
+cds <- order_cells(cds, root_cells = max.foxg1)
+plot_cells(cds, color_cells_by = "pseudotime", label_cell_groups = FALSE, label_leaves = FALSE, 
+    label_branch_points = FALSE)
+first_in$pseudotime = pseudotime(cds)
+FeaturePlot(first_in, features = 'pseudotime', order=T, max.cutoff = 'q99') + scale_color_viridis()
+
+
+
+first_en = subset(first, idents=c("EN_NPC1","EN_NPC2","EN_NPC3","EN_NPC4","EN1","EN2","nEN"))
+
+cds <- as.cell_data_set(first_en)
+cds <- cluster_cells(cds)
+plot_cells(cds, color_cells_by = "partition", show_trajectory_graph = FALSE)
+
+cds <- learn_graph(cds)
+plot_cells(cds, label_groups_by_cluster = FALSE, label_leaves = FALSE, label_branch_points = FALSE)
+
+max.foxg1 <- which.max(unlist(FetchData((first_en), "FOXG1")))
+max.foxg1 <- colnames((first_en))[max.foxg1]
+cds <- order_cells(cds, root_cells = max.foxg1)
+plot_cells(cds, color_cells_by = "pseudotime", label_cell_groups = FALSE, label_leaves = FALSE, 
+    label_branch_points = FALSE)
+first_en$pseudotime = pseudotime(cds)
+
+
+first$pseudotime = 0
+first$pseudotime[colnames(first_en)] = first_en$pseudotime
+first$pseudotime[colnames(first_in)] = first_in$pseudotime
+
+DefaultAssay(first) = 'cleaned'
+first = NormalizeData(first)
+
+FeatureScatter(first_en, feature1 = "pseudotime", feature2 = "FOXG1", pt.size = .5, 
+               cols=dittoColors()) + geom_smooth(method = "loess", se = F, span = 2,size=2,
+                                                 aes(color = first_en$SCT_snn_res.0.5))
+FeatureScatter(first_en, feature1 = "pseudotime", feature2 = "HES1", pt.size = .5, 
+               cols=dittoColors()) + geom_smooth(method = "loess", se = F, span = 2,size=2,
+                                                 aes(color = first_en$SCT_snn_res.0.5))
+FeatureScatter(first_en, feature1 = "pseudotime", feature2 = "WNT2B", pt.size = .5, 
+               cols=dittoColors()) + geom_smooth(method = "loess", se = F, span = 2,size=2,
+                                                 aes(color = first_en$SCT_snn_res.0.5))
+
+FeatureScatter(first_in, feature1 = "pseudotime", feature2 = "OLIG3", pt.size = .5, 
+               cols=dittoColors()) + geom_smooth(method = "loess", se = F, span = 2,size=2,
+                                                 aes(color = first_in$SCT_snn_res.0.5))
+FeatureScatter(first_in, feature1 = "pseudotime", feature2 = "GATA3", pt.size = .5, 
+               cols=dittoColors()) + geom_smooth(method = "loess", se = F, span = 2,size=2,
+                                                 aes(color = first_in$SCT_snn_res.0.5))
+FeatureScatter(first_in, feature1 = "pseudotime", feature2 = "ASCL1", pt.size = .5, 
+               cols=dittoColors()) + geom_smooth(method = "loess", se = F, span = 2,size=2,
+                                                 aes(color = first_in$SCT_snn_res.0.5))
+FeatureScatter(first_in, feature1 = "pseudotime", feature2 = "SHH", pt.size = .5, 
+               cols=dittoColors()) + geom_smooth(method = "loess", se = F, span = 2,size=2,
+                                                 aes(color = first_in$SCT_snn_res.0.5))
+```
+
+```{r}
+first = readRDS("/media/chang/HDD-8/chang/aparna/first.rds")
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/first_dimplot.pdf")
+SCpubr::do_DimPlot(sample = first, label = T)
+dev.off()
+
+deg <- tibble::tibble(markers)
+deg = deg[!grepl("MT-",deg$gene),]
+deg = deg[!grepl("RPS",deg$gene),]
+deg = deg[!grepl("RPL",deg$gene),]
+SCpubr::do_GroupwiseDEPlot(sample = first,
+                           de_genes = deg, top_genes = 4)
+
+pdf('/media/chang/HDD-8/chang/aparna/pdfs/first_sig_scores.pdf', width = 10)
+FeaturePlot(first, order=T, max.cutoff = 'q98', ncol = 3,
+            features = c("AD.AV.AM_UCell","RT_UCell","LD_UCell","ZI_UCell",
+                         "MHb..immature._UCell","dMHb_UCell")) & 
+  NoAxes() & scale_color_viridis()
+dev.off()
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/first_bar_age.pdf")
+SCpubr::do_BarPlot(first, group.by = "Age", 
+                         split.by = "clusters",
+                         plot.title = "Number of cells per sample in each cluster",
+                         position = "stack")
+dev.off()
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/first_box_umi.pdf", width = 10)
+do_BoxPlot(sample = first, feature = "nCount_RNA") +do_BoxPlot(sample = first, feature = "nCount_RNA", group.by = "Sample") & ylim(500,5000)
+dev.off()
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/first_box_mt.pdf", width = 10)
+do_BoxPlot(sample = first, feature = "percent.mt") +do_BoxPlot(sample = first, feature = "percent.mt", group.by = "Sample") & ylim(0,10)
+dev.off()
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/first_box_doublet.pdf", width = 10)
+do_BoxPlot(sample = first, feature = "hybrid_score") +do_BoxPlot(sample = first, feature = "hybrid_score", group.by = "Sample") & ylim(0,1.5)
+dev.off()
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/first_sig_all.pdf", width = 12)
+FeaturePlot(first, features = uc[1:12], ncol = 4, order=T,max.cutoff = 'q98') & NoAxes() &
+  scale_color_viridis()
+dev.off()
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/first_sig_all2.pdf", width = 12)
+FeaturePlot(first, features = uc[13:23], ncol = 4, order=T,max.cutoff = 'q98') & NoAxes() &
+  scale_color_viridis()
+dev.off()
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/first_cor.pdf", width=10,height=10)
+DefaultAssay(first)="SCT"
+SCpubr::do_CorrelationPlot(sample = first, column_names_rot = 45,
+                                cell_size = 10)
+dev.off()
+
+
+network <- decoupleR::get_dorothea(organism = "human",
+                                   levels = c("A", "B", "C"))
+activities <- decoupleR::run_wmean(mat = as.matrix(first@assays[["SCT"]]@data),
+                                   network = network,
+                                   .source = "source",
+                                   .targe = "target",
+                                   .mor = "mor",
+                                   times = 100,
+                                   minsize = 5)
+saveRDS(activities, file='activities.rds')
+
+SCpubr::do_TFActivityPlot(sample = first,
+                                 activities = activities,
+                                 n_tfs = 40)
+
+
+SCpubr::do_EnrichmentHeatmap(sample = first, group.by = 'clusters',
+                                  input_gene_list = sigs)
+```
+
+```{r}
+second = readRDS("/media/chang/HDD-8/chang/aparna/second.rds")
+second = SCTransform(second, vst.flavor='v2', assay='cleaned')
+
+VariableFeatures(second) = VariableFeatures(second)[!grepl("MT-", VariableFeatures(second))]
+VariableFeatures(second) = VariableFeatures(second)[!grepl("MALAT1", VariableFeatures(second))]
+VariableFeatures(second) = VariableFeatures(second)[!grepl("RPS", VariableFeatures(second))]
+VariableFeatures(second) = VariableFeatures(second)[!grepl("RPL", VariableFeatures(second))]
+
+second = RunPCA(second, npcs=30)
+second = RunHarmony(second, group.by.vars="Sample", assay.use="SCT")
+second = RunUMAP(second, dims=1:30, reduction='harmony')
+second = FindNeighbors(second, dims=1:30, reduction='harmony')
+second = FindClusters(second, algorithm=2, resolution=.4)
+second = FindClusters(second, algorithm=2, resolution=.3)
+second = FindClusters(second, algorithm=2, resolution=.2)
+second = FindClusters(second, algorithm=2, resolution=.1)
+
+saveRDS(second, file='second.rds')
 
 ```
 
@@ -149,24 +363,14 @@ plot_list <- PlotSoftPowers(first)
 wrap_plots(plot_list, ncol=2)
 
 first <- ConstructNetwork(
-  first, soft_power=9,
+  first, soft_power=3,
   setDatExpr=FALSE,
   tom_name = 'INH' # name of the topoligical overlap matrix written to disk
 )
+
+
+
+saveRDS(first, file='/media/chang/HDD-8/chang/aparna/first.rds')
+
 ```
 
-```{r}
-gw19 = LoadVizgen("/media/chang/HDD-8/chang/aparna/vizgen/Processed/202210191506_gw23THAL061920CASEDSNOW_VMSC01801/region_0/")
-
-gw23 = LoadVizgen("/media/chang/HDD-8/chang/aparna/vizgen/Processed/202210191506_gw23THAL061920CASEDSNOW_VMSC01801/region_0/")
-```
-
-```{r}
-X_center <- rowMeans(thal@assays$RNA@data[VariableFeatures(thal),])
-X_scale <- proxyC::rowSds(thal@assays$RNA@data[VariableFeatures(thal),])
-retval <- irlba::irlba(A = t(thal@assays$RNA@data[VariableFeatures(thal),]), 
-                       nv = 50, center = X_center, scale = X_scale)
-retval$x <- retval$u %*% diag(retval$d)
-merged[['pca']] = CreateDimReducObject(retval$x, key='pca_')
-rownames(merged[["pca"]]@cell.embeddings) <- Cells(merged)
-```
