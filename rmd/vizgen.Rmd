@@ -1,0 +1,150 @@
+---
+title: "vizgen"
+output: html_document
+date: "2022-10-23"
+---
+
+```{r}
+library(Seurat)
+
+vizgen.obj <- LoadVizgen(data.dir = "~/vizgen/Processed/202210191506_gw23THAL061920CASEDSNOW_VMSC01801/region_0/", fov = "thal")
+saveRDS(vizgen.obj, file='vizgen_gw23.obj.rds')
+
+vizgen.obj <- LoadVizgen(data.dir = "~/vizgen/Processed/202210231852_gw19thal011620NOWDS_VMSC01801/region_0/", fov = "thal")
+saveRDS(vizgen.obj, file='vizgen_gw19.obj.rds')
+```
+
+```{r}
+gw23 = readRDS("vizgen_gw23.obj.rds")
+gw23 = subset(gw23, subset=nCount_Vizgen >= 10 & nFeature_Vizgen <= 40)
+VlnPlot(gw23, features = c("nFeature_Vizgen"), pt.size = 0)
+gw23 <- SCTransform(gw23, assay = "cleaned", clip.range = c(-10, 10),vst.flavor='v2')
+gw23 <- RunPCA(gw23, npcs = 10)
+gw23 <- RunUMAP(gw23, dims = 1:10)
+gw23 <- FindNeighbors(gw23, reduction = "pca", dims = 1:10)
+gw23 <- FindClusters(gw23, resolution = 0.4, algorithm = 2)
+DefaultAssay(gw23) = 'Vizgen'
+gw23 = NormalizeData(gw23)
+saveRDS(gw23, file='vizgen_gw23.obj.rds')
+
+ImageDimPlot(gw23, fov = "thal", cols = "polychrome", axes = TRUE)
+
+gw23 = subset(gw23, idents=c(9,10,11), invert=T)
+
+test = wilcoxauc(gw23, seurat_assay = "SCT")
+top_markers(test)
+
+ImageFeaturePlot(gw23, fov = "thal", features = c("PROX1","PENK","UNC5C","HIGD1B","TXN","INSM1","CA10","RSPH1","TLL1","CDH10", "CDH18"), max.cutoff = "q90")
+
+ImageFeaturePlot(gw23, fov = "thal", features = c("GAD1","TCF7L2","CRABP1","DLX2","FOXG1","LHX1","PENK","OLIG1","CRYAB"), max.cutoff = "q90")
+
+ImageFeaturePlot(gw23, fov = "thal",features = rownames(gw23)[1:20], max.cutoff = "q90")
+ImageFeaturePlot(gw23, fov = "thal",features = rownames(gw23)[21:40], max.cutoff = "q90")
+ImageFeaturePlot(gw23, fov = "thal",features = rownames(gw23)[41:60], max.cutoff = "q90")
+ImageFeaturePlot(gw23, fov = "thal",features = rownames(gw23)[61:80], max.cutoff = "q90")
+ImageFeaturePlot(gw23, fov = "thal",features = rownames(gw23)[81:100], max.cutoff = "q90")
+ImageFeaturePlot(gw23, fov = "thal",features = rownames(gw23)[101:120], max.cutoff = "q90")
+ImageFeaturePlot(gw23, fov = "thal",features = rownames(gw23)[121:140], max.cutoff = "q90")
+
+gw23$clusters = as.character(gw23$SCT_snn_res.0.4)
+gw23$clusters[gw23$clusters == "7"] = "Vasc"
+gw23$clusters[gw23$clusters == "8"] = "IN"
+gw23$clusters[gw23$clusters == "9"] = "Vasc"
+gw23$clusters[gw23$clusters == "6"] = "OL_AC"
+gw23$clusters[gw23$clusters == "3"] = "IN_NEFL"
+gw23$clusters[gw23$clusters == "4"] = "EN_CBLN2"
+gw23$clusters[gw23$clusters == "0"] = "EN_LHX9"
+gw23$clusters[gw23$clusters == "1"] = "EN_PRSS12"
+gw23$clusters[gw23$clusters == "2"] = "EN_PENK"
+gw23$clusters[gw23$clusters == "5"] = "OL_AC_ALCAM"
+
+Idents(gw23) = gw23$clusters
+
+pdf("gw23_clusters.pdf")
+ImageDimPlot(gw23, fov = "thal", cols = "polychrome", axes = TRUE)
+dev.off()
+
+all_markers <- FindAllMarkers(object = gw23)
+top5_markers <- Extract_Top_Markers(marker_dataframe = all_markers, num_genes = 5, named_vector = FALSE,
+    make_unique = TRUE)
+
+pdf('gw23_dotplot.pdf', height = 10, width = 8)
+Clustered_DotPlot(seurat_object = gw23, features = top5_markers)
+dev.off()
+
+pdf('gw23_genes.pdf')
+ImageFeaturePlot(gw23, fov = "thal", max.cutoff = "q90",
+                 features = c("TCF7L2","CALN1","ETV1","CD247","PKIB","FOXG1"))
+dev.off()
+
+
+pdf("gw23_grey_map.pdf")
+ImageDimPlot(gw23, fov = "thal", cols = "grey", axes = TRUE, group.by = 'orig.ident')
+dev.off()
+```
+
+
+```{r}
+gw19 = readRDS("vizgen_gw19.obj.rds")
+gw19[['cleaned']] = CreateAssayObject(gw19@assays$Vizgen@counts[rownames(gw19) != "FOXG1",])
+gw19 = subset(gw19, subset=nCount_cleaned >= 10 & nFeature_cleaned <= 40)
+VlnPlot(gw19, features = c("nFeature_Vizgen"), pt.size = 0)
+gw19 <- SCTransform(gw19, assay = "cleaned", clip.range = c(-10, 10),
+                    vst.flavor='v2')
+gw19 <- RunPCA(gw19, npcs = 10, features = rownames(gw19))
+gw19 <- RunUMAP(gw19, dims = 1:10)
+gw19 <- FindNeighbors(gw19, reduction = "pca", dims = 1:10)
+gw19 <- FindClusters(gw19, resolution = .5, algorithm=2)
+DefaultAssay(gw19) = 'Vizgen'
+gw19 = NormalizeData(gw19)
+saveRDS(gw19, file='vizgen_gw19.obj.rds')
+
+gw19$clusters = as.character(gw19$SCT_snn_res.0.5)
+gw19$clusters[gw19$clusters == "12"] = "IN_CRABP1"
+gw19$clusters[gw19$clusters == "11"] = "MG"
+gw19$clusters[gw19$clusters == "9"] = "Vasc"
+gw19$clusters[gw19$clusters == "1"] = "AC"
+gw19$clusters[gw19$clusters == "0"] = "OL"
+gw19$clusters[gw19$clusters == "5"] = "IN"
+gw19$clusters[gw19$clusters == "7"] = "IN_SST"
+gw19$clusters[gw19$clusters == "2"] = "IN_SIX3"
+gw19$clusters[gw19$clusters == "8"] = "IN_ISL1"
+gw19$clusters[gw19$clusters == "6"] = "IN_NEFL"
+gw19$clusters[gw19$clusters == "10"] = "EN_PRSS12"
+gw19$clusters[gw19$clusters == "3"] = "EN1"
+gw19$clusters[gw19$clusters == "4"] = "EN2"
+
+pdf("gw19_clusters.pdf")
+ImageDimPlot(gw19, fov = "thal", cols = "polychrome", axes = TRUE, group.by = 'clusters')
+dev.off()
+
+pdf("gw19_genes.pdf", height = 10)
+ImageFeaturePlot(gw19, fov = "thal", max.cutoff = "q90",
+                 features = c("GAD1","CRABP1","ISL1","DLX2","LHX9","CALB1"))
+dev.off()
+
+ImageFeaturePlot(gw19, fov = "thal",features = rownames(gw19)[1:20], max.cutoff = "q90")
+ImageFeaturePlot(gw19, fov = "thal",features = rownames(gw19)[21:40], max.cutoff = "q90")
+ImageFeaturePlot(gw19, fov = "thal",features = rownames(gw19)[41:60], max.cutoff = "q90")
+ImageFeaturePlot(gw19, fov = "thal",features = rownames(gw19)[61:80], max.cutoff = "q90")
+ImageFeaturePlot(gw19, fov = "thal",features = rownames(gw19)[81:100], max.cutoff = "q90")
+ImageFeaturePlot(gw19, fov = "thal",features = rownames(gw19)[101:120], max.cutoff = "q90")
+ImageFeaturePlot(gw19, fov = "thal",features = rownames(gw19)[121:140], max.cutoff = "q90")
+
+Idents(gw19) = gw19$clusters
+
+all_markers <- FindAllMarkers(object = gw19)
+top5_markers <- Extract_Top_Markers(marker_dataframe = all_markers, num_genes = 5, named_vector = FALSE,
+    make_unique = TRUE)
+
+pdf('gw19_dotplot.pdf', height = 10, width = 8)
+Clustered_DotPlot(seurat_object = gw19, features = top5_markers)
+dev.off()
+
+
+pdf("gw19_grey_map.pdf")
+ImageDimPlot(gw19, fov = "thal", cols = "grey", axes = TRUE, group.by = 'orig.ident')
+dev.off()
+
+```
+
