@@ -12,10 +12,13 @@ saveRDS(vizgen.obj, file='vizgen_gw23.obj.rds')
 
 vizgen.obj <- LoadVizgen(data.dir = "~/vizgen/Processed/202210231852_gw19thal011620NOWDS_VMSC01801/region_0/", fov = "thal")
 saveRDS(vizgen.obj, file='vizgen_gw19.obj.rds')
+
+vizgen.obj <- LoadVizgen(data.dir = "/media/chang/HDD-8/chang/aparna/vizgen/Processed/202211082141_GW23Thalamus011620try2_VMSC01801/region_0/", fov = "thal")
+saveRDS(vizgen.obj, file='/media/chang/HDD-8/chang/aparna/vizgen_gw23_2.obj.rds')
 ```
 
 ```{r}
-gw23 = readRDS("vizgen_gw23.obj.rds")
+gw23 = readRDS("/media/chang/HDD-8/chang/aparna/vizgen_gw23_2.obj.rds")
 gw23 = subset(gw23, subset=nCount_Vizgen >= 10 & nFeature_Vizgen <= 40)
 VlnPlot(gw23, features = c("nFeature_Vizgen"), pt.size = 0)
 gw23 <- SCTransform(gw23, assay = "cleaned", clip.range = c(-10, 10),vst.flavor='v2')
@@ -25,6 +28,8 @@ gw23 <- FindNeighbors(gw23, reduction = "pca", dims = 1:10)
 gw23 <- FindClusters(gw23, resolution = 0.4, algorithm = 2)
 DefaultAssay(gw23) = 'Vizgen'
 gw23 = NormalizeData(gw23)
+
+
 saveRDS(gw23, file='vizgen_gw23.obj.rds')
 
 ImageDimPlot(gw23, fov = "thal", cols = "polychrome", axes = TRUE)

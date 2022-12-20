@@ -14,7 +14,6 @@ library(dplyr)
 library(ggplot2)
 library(ggrepel)
 library(ggplotify)
-library(scINSIGHT)
 ```
 
 ```{r}
@@ -229,70 +228,84 @@ saveRDS(sticr, file='/media/chang/HDD-8/chang/cloneseq/seurat.rds')
 
 DimPlot_scCustom(sticr, group.by = "Sample")
 p1 = hist(table(sticr$short_clone), breaks=500, col="red",ylim = c(0,10), xlim=c(0,80))
-```
 
 
-```{r}
 passed_clone = names(table(sticr$clone)[table(sticr$clone) >= 2])
 passed_clone = passed_clone[!grepl("NA",passed_clone)]
-sticr_gw18 = subset(sticr, subset = clone %in% passed_clone & 
-                      Sample == "GW18")
+sticr2 = subset(sticr, subset = clone %in% passed_clone & Area != "MGE")
 
-sticr_gw18 = SCTransform(sticr_gw18, vst.flavor='v2', 
+sticr2 = SCTransform(sticr2, vst.flavor='v2', variable.features.n = 2000,
                          n_genes=NULL, ncells=NULL);gc();
-sticr_gw18 = RunPCA(sticr_gw18, npcs=30)
-sticr_gw18 = RunUMAP(sticr_gw18, dims=1:30)
-sticr_gw18 = FindNeighbors(sticr_gw18, dims=1:30)
-sticr_gw18 = FindClusters(sticr_gw18, algorithm = 2, resolution = 1)
+VariableFeatures(sticr2) = VariableFeatures(sticr2)[!grepl("RPL", VariableFeatures(sticr2))]
+VariableFeatures(sticr2) = VariableFeatures(sticr2)[!grepl("RPS", VariableFeatures(sticr2))]
+VariableFeatures(sticr2) = VariableFeatures(sticr2)[!grepl("MT-", VariableFeatures(sticr2))]
+VariableFeatures(sticr2) = VariableFeatures(sticr2)[!grepl("LINC", VariableFeatures(sticr2))]
+VariableFeatures(sticr2) = VariableFeatures(sticr2)[!grepl("AC0", VariableFeatures(sticr2))]
+VariableFeatures(sticr2) = VariableFeatures(sticr2)[!grepl("AL0", VariableFeatures(sticr2))]
+sticr2 = RunPCA(sticr2, npcs=30)
+sticr2 = RunHarmony(sticr2, group.by.vars = "Sample", assay.use = 'SCT',
+                    kmeans_init_nstart=20, kmeans_init_iter_max=100)
+sticr2 = RunUMAP(sticr2, dims=1:30, reduction='harmony')
+sticr2 = FindNeighbors(sticr2, dims=1:30, reduction='harmony')
+sticr2 = FindClusters(sticr2, algorithm = 2, resolution = .4)
+sticr2 = FindClusters(sticr2, algorithm = 2, resolution = .6)
 
-saveRDS(sticr_gw18, file='/media/chang/HDD-8/chang/cloneseq/seurat_gw18.rds')
+sticr2$clusters = as.character(sticr2$SCT_snn_res.0.4)
+sticr2$clusters[sticr2$SCT_snn_res.0.4 == 5] = "OPC"
+sticr2$clusters[sticr2$SCT_snn_res.0.6 == 13] = "IN_IPC2"
+sticr2$clusters[sticr2$SCT_snn_res.0.4 == 17] = "IN_IPC1"
+sticr2$clusters[sticr2$SCT_snn_res.0.4 == 7] = "IN_IPC1"
+sticr2$clusters[sticr2$SCT_snn_res.0.4 == 11] = "Div"
+sticr2$clusters[sticr2$SCT_snn_res.0.4 == 6] = "Div"
+sticr2$clusters[sticr2$SCT_snn_res.0.4 == 9] = "OL"
+sticr2$clusters[sticr2$SCT_snn_res.0.4 == 10] = "tRG"
+sticr2$clusters[sticr2$SCT_snn_res.0.4 == 16] = "EN_IPC"
+sticr2$clusters[sticr2$SCT_snn_res.0.4 == 8] = "EN_IPC"
+sticr2$clusters[sticr2$SCT_snn_res.0.4 == 3] = "EN1"
+sticr2$clusters[sticr2$SCT_snn_res.0.4 == 13] = "EN2"
+sticr2$clusters[sticr2$SCT_snn_res.0.4 == 4] = "IN1"
+sticr2$clusters[sticr2$SCT_snn_res.0.4 == 1] = "IN2"
+sticr2$clusters[sticr2$SCT_snn_res.0.4 == 12] = "IN2"
+sticr2$clusters[sticr2$SCT_snn_res.0.4 == 14] = "IN3"
+sticr2$clusters[sticr2$SCT_snn_res.0.4 == 2] = "oRG1"
+sticr2$clusters[sticr2$SCT_snn_res.0.4 == 0] = "oRG2"
+sticr2$clusters[sticr2$SCT_snn_res.0.4 == 18] = "oRG2"
+sticr2$clusters[sticr2$SCT_snn_res.0.4 == 15] = "Doub"
+sticr2$clusters[sticr2$SCT_snn_res.0.4 == 19] = "LQ"
 
-markers_gw18 = FindAllMarkers(sticr_gw18, only.pos = T)
+Idents(sticr2) = sticr2$clusters
 
-test_gw18 = wilcoxauc(sticr_gw18, seurat_assay = 'SCT')
+SCpubr::do_CorrelationPlot(sample = sticr2, 
+                                cell_size = 10)
 
-DimPlot_scCustom(sticr_gw18, label=T)
-DimPlot_scCustom(sticr_gw18, group.by = "Area")
-dittoBarPlot(sticr_gw18, var='Area', group.by = 'ident')
+#my_scGate_model <- gating_model(name = "EN_IPC", signature = c("EOMES","PPP1R17"))  
+#sticr2 <- scGate(data = sticr2, model = my_scGate_model)
 
+saveRDS(sticr2,file="/media/chang/HDD-8/chang/cloneseq/seurat_all_processed.rds")
+sticr3 = subset(sticr2, idents=c("LQ","Doub"), invert=T);gc()
+saveRDS(sticr3,file="/media/chang/HDD-8/chang/cloneseq/seurat_all_processed_filtered.rds")
+
+test = FindAllMarkers(sticr2, only.pos = T)
+saveRDS(test,file="/media/chang/HDD-8/chang/cloneseq/seurat_all_processed_markers.rds")
+top5_markers <- Extract_Top_Markers(marker_dataframe = test, num_genes = 5, 
+                                    named_vector = FALSE, make_unique = TRUE)
+
+Clustered_DotPlot(seurat_object = sticr2, features = top5_markers)
+
+
+test = FindMarkers(sticr2, ident.1 = "oRG1", ident.2 = 'oRG2')
+SCpubr::do_VolcanoPlot(sample = sticr2, plot.title = 'oRG1 vs oRG2',n_genes = 20,
+                       de_genes = test)
+
+meta = split(sticr2@meta.data, sticr2@meta.data$Batch)
+write.table(data.frame(Index=substr(rownames(meta$GW15_rep1_tube3), 1, 16), 
+               Cell_type= meta$GW15_rep1_tube3$clusters), 
+            file="/media/chang/HDD-8/chang/cloneseq/fastqs/GW15_rep1/GW15_rep1_tube3/meta.tsv", 
+            sep = '\t', quote = F, row.names = F)
+
+FeaturePlot(sticr2, features = c("EOMES","MKI67","FEZF2","NEUROD6"), order=T, max.cutoff = 'q95') & NoAxes()
 ```
 
-```{r}
-passed_clone = names(table(sticr$clone)[table(sticr$clone) >= 2])
-passed_clone = passed_clone[!grepl("NA",passed_clone)]
-sticr_gw15 = subset(sticr, subset = clone %in% passed_clone & 
-                      time_info == "GW15")
-#sticr_gw15 = subset(sticr_gw15, subset=percent.mt<5)
-
-sticr_gw15_list = SplitObject(sticr_gw15, split.by = 'Sample')
-for (i in names(sticr_gw15_list)) {
-    sticr_gw15_list[[i]] <- SCTransform(sticr_gw15_list[[i]], vst.flavor='v2',
-                                        ncells=NULL, n_genes=NULL)
-}
-features <- SelectIntegrationFeatures(object.list = sticr_gw15_list, nfeatures = 3000)
-sticr_gw15_list <- PrepSCTIntegration(object.list = sticr_gw15_list, anchor.features = features)
-
-reference_dataset <- which(names(sticr_gw15_list) == "GW15_rep1")
-
-anchors <- FindIntegrationAnchors(object.list = sticr_gw15_list, normalization.method = "SCT", 
-    anchor.features = features, reference = reference_dataset)
-sticr_gw15 <- IntegrateData(anchorset = anchors, normalization.method = "SCT")
-
-sticr_gw15 <- RunPCA(object = sticr_gw15, verbose = FALSE)
-sticr_gw15 <- RunUMAP(object = sticr_gw15, dims = 1:30)
-sticr_gw15 <- FindNeighbors(sticr_gw15, dims=1:30)
-sticr_gw15 <- FindClusters(sticr_gw15, algorithm = 2, resolution = .6)
-
-saveRDS(sticr_gw15, file='/media/chang/HDD-8/chang/cloneseq/seurat_gw15.rds')
-
-
-markers_gw15 = FindAllMarkers(sticr_gw15, only.pos = T)
-
-test_gw15 = wilcoxauc(sticr_gw15, seurat_assay = 'SCT')
-
-test = FindMarkers(sticr_gw15, ident.1 = 10, ident.2 = 9, only.pos = T)
-
-```
 
 ```{r}
 early_mtx = read.csv("/media/chang/HDD-8/chang/cloneseq/embo/matrix.csv", row.names = 1)
@@ -302,6 +315,7 @@ meta$X = NULL
 early@meta.data = cbind(early@meta.data, meta)
 
 saveRDS(early,file="/media/chang/HDD-8/chang/cloneseq/early.rds")  
+early = readRDS("/media/chang/HDD-8/chang/cloneseq/early.rds")  
 
 early[['percent.mt']] = PercentageFeatureSet(early, pattern = "MT-",assay = 'RNA')
 early = subset(early, subset=nFeature_RNA >= 500 & percent.mt < 10)

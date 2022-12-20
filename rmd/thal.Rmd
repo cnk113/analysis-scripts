@@ -78,6 +78,7 @@ genes = c(area_genes, area_genes2, area_genes3, crabp1_genes, epend_genes,
 ```{r}
 thal = readRDS("/media/chang/HDD-8/chang/aparna/thal.rds")
 first = subset(thal, subset=Sample %in% c("CS12","CS14","CS15","CS19","CS22","CS22_2"))
+first = subset(first, subset=Sample=="CS19", invert=T)
 first = SCTransform(first, vst.flavor='v2', assay='cleaned', variable.features.n = 2000)
 
 VariableFeatures(first) = VariableFeatures(first)[!grepl("MT-", VariableFeatures(first))]
@@ -92,46 +93,41 @@ first = RunHarmony(first, group.by.vars='Sample', assay.use = "SCT")
 first = RunUMAP(first, dims=1:20, reduction='harmony')
 first = FindNeighbors(first, dims=1:20, reduction='harmony')
 
-first = FindClusters(first, algorithm = 2, resolution = .5)
+first = FindClusters(first, algorithm = 2, resolution = 1)
 
 
 FeaturePlot(first, order=T,max.cutoff='q95', ncol=4,
             features = c("TCF7L2","MKI67","MEIS2","ASCL1","FOXG1","SHH","NKX2-2","HES1","ISL1","OLIG3","OLIG2","GSX2","SIX3","GAD2","GATA3","LHX1")) & NoAxes() & scale_color_viridis()
 
 
-first$clusters = as.character(first$SCT_snn_res.0.5)
-first$clusters[first$clusters == 13] = "IN4"
-first$clusters[first$clusters == 12] = "FB1"
-first$clusters[first$clusters == 18] = "FB2"
-first$clusters[first$clusters == 19] = "RBC"
-first$clusters[first$clusters == 15] = "IN_NPC1"
-first$clusters[first$clusters == 10] = "IN_NPC2"
-first$clusters[first$clusters == 11] = "RBC"
-first$clusters[first$clusters == 2] = "IN1"
-first$clusters[first$clusters == 14] = "IN2"
-first$clusters[first$clusters == 9] = "IN3"
-first$clusters[first$clusters == 8] = "Div"
-first$clusters[first$clusters == 6] = "nEN"
-first$clusters[first$clusters == 0] = "EN1"
+first$clusters = as.character(first$SCT_snn_res.1)
+first$clusters[first$clusters == 9] = "MES"
+first$clusters[first$clusters == 19] = "MES"
+first$clusters[first$clusters == 1] = "NPC1"
+first$clusters[first$clusters == 0] = "NPC1"
+first$clusters[first$clusters == 6] = "NPC1"
+first$clusters[first$clusters == 4] = "nIPC1"
+first$clusters[first$clusters == 7] = "IPC1"
+first$clusters[first$clusters == 17] = "IPC1"
+first$clusters[first$clusters == 10] = "EN1"
+first$clusters[first$clusters == 11] = "EN1"
+first$clusters[first$clusters == 13] = "IN1"
+first$clusters[first$clusters == 15] = "IN2"
+first$clusters[first$clusters == 16] = "IN3"
+first$clusters[first$clusters == 23] = "RBC"
+first$clusters[first$clusters == 14] = "NPC3"
+first$clusters[first$clusters == 22] = "nIPC2"
+first$clusters[first$clusters == 21] = "IPC2"
 first$clusters[first$clusters == 3] = "EN2"
-first$clusters[first$clusters == 16] = "EN1"
-first$clusters[first$clusters == 17] = "EN1"
-first$clusters[first$clusters == 7] = "EN_NPC1"
-first$clusters[first$clusters == 1] = "EN_NPC2"
-first$clusters[first$clusters == 4] = "EN_NPC3"
-first$clusters[first$clusters == 5] = "EN_NPC4"
+first$clusters[first$clusters == 5] = "nEN1"
+first$clusters[first$clusters == 18] = "nEN1"
+first$clusters[first$clusters == 20] = "nEN1"
+first$clusters[first$clusters == 8] = "nEN2"
+first$clusters[first$clusters == 2] = "NPC2"
+first$clusters[first$clusters == 12] = "NPC2"
 
 Idents(first) = first$clusters
 saveRDS(first, file='/media/chang/HDD-8/chang/aparna/first.rds')
-
-markers = FindAllMarkers(first ,only.pos = T)
-saveRDS(markers,file="/media/chang/HDD-8/chang/aparna/first_markers.rds")
-markers = readRDS("/media/chang/HDD-8/chang/aparna/first_markers.rds")
-
-top5_markers <- Extract_Top_Markers(marker_dataframe = markers, num_genes = 5, named_vector = FALSE,
-    make_unique = TRUE)
-
-Clustered_DotPlot(seurat_object = first, features = top5_markers, k = 9)
 
 
 DimPlot_scCustom(first, group.by = 'Sample')
@@ -139,21 +135,59 @@ DimPlot_scCustom(first, label=T)
 
 FeaturePlot(first, features = c("TCF7L2","MKI67","MEIS2","GAD2"), order=T,max.cutoff='q98') & NoAxes() & scale_color_viridis()
 
-
-
-mouse_markers <- lapply(1:23, function(i) read_excel("~/thal_table.xlsx", sheet = i))
-names(mouse_markers) = openxlsx::getSheetNames("~/thal_table.xlsx")
-
-sigs = lapply(mouse_markers, function(i){
-  genes = toupper(i$Gene[1:100])
-  intersect(genes, rownames(first))[1:10]
-})
-
 saveRDS(first, file='/media/chang/HDD-8/chang/aparna/first.rds')
 ```
 
 ```{r}
+seuratToH5AD <- function(seuratObj, h5ad_output, pca=FALSE, umap=TRUE, harmony=TRUE){
+  Sys.setenv(RETICULATE_PYTHON = "/home/chang/miniconda3/envs/venv/bin/python")
+  library(reticulate)
+  #use_condaenv('venv')
+  library(Matrix)
+  writeMM(t(seuratObj@assays$cleaned@counts), file='combined.mtx')
+  writeMM(t(seuratObj@assays$spliced@counts), file='spliced.mtx')
+  writeMM(t(seuratObj@assays$unspliced@counts), file='unspliced.mtx')
+  write.csv(rownames(seuratObj@assays$spliced@counts), file = "genes.csv", row.names = FALSE)
+  if(umap == TRUE){
+  	write.csv(seuratObj@reductions$umap@cell.embeddings, file = "umap.csv", row.names = FALSE)
+  }
+  if(pca == TRUE){
+	  write.csv(seuratObj@reductions$pca@cell.embeddings, file = "pca.csv", row.names = FALSE)
+  }
+  if(harmony == TRUE){
+	  write.csv(seuratObj@reductions$harmony@cell.embeddings, file = "harmony.csv", row.names= FALSE)
+  }
+  write.csv(colnames(seuratObj@assays$spliced@counts), file = "cells.csv", row.names = FALSE)
+  write.csv(seuratObj@meta.data, file = "meta.csv", row.names = FALSE)
+  source_python('~/build.py')
+  build(h5ad_output, pca = pca, umap = umap, harmony = harmony)
+  #file.remove('combined.mtx')
+  file.remove('spliced.mtx')
+  file.remove('unspliced.mtx')
+  file.remove('genes.csv')
+  file.remove('cells.csv')
+  if(umap == TRUE){
+  	file.remove('umap.csv')
+  }
+  if(pca == TRUE){
+	  file.remove('pca.csv')
+  }
+  if(harmony == TRUE){
+	  file.remove('harmony.csv')
+  }
+  file.remove('meta.csv')
+}
+```
+
+```{r}
 first = readRDS("/media/chang/HDD-8/chang/aparna/first.rds")
+
+setwd("/media/chang/HDD-8/chang/aparna/")
+seuratToH5AD(seuratObj = first, h5ad_output = "first.h5ad")
+
+
+
+
 
 first_in = subset(first, idents=c("IN_NPC1","IN_NPC2","IN1","IN2","IN3"))
 
@@ -225,8 +259,12 @@ FeatureScatter(first_in, feature1 = "pseudotime", feature2 = "SHH", pt.size = .5
 ```{r}
 first = readRDS("/media/chang/HDD-8/chang/aparna/first.rds")
 
+color = dittoColors()[1:length(unique(Idents(first)))]
+names(color) = levels(first)
+
 pdf("/media/chang/HDD-8/chang/aparna/pdfs/first_dimplot.pdf")
-SCpubr::do_DimPlot(sample = first, label = T)
+SCpubr::do_DimPlot(sample = first, label = T, 
+                   colors.use = color)
 dev.off()
 
 deg <- tibble::tibble(markers)
@@ -236,12 +274,25 @@ deg = deg[!grepl("RPL",deg$gene),]
 SCpubr::do_GroupwiseDEPlot(sample = first,
                            de_genes = deg, top_genes = 4)
 
-first = UCell::AddModuleScore_UCell(first, features = sigs, assay = 'SCT')
+library(readxl)
+mouse_markers <- lapply(1:23, function(i) read_excel("~/thal_table.xlsx", sheet = i))
+names(mouse_markers) = openxlsx::getSheetNames("~/thal_table.xlsx")
+sigs = lapply(mouse_markers, function(i){
+  genes = toupper(i$Gene[1:100])
+  intersect(genes, rownames(first))[1:15]
+})
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/first_mouse.pdf", width = 10)
+do_EnrichmentHeatmap(sample = first, group.by = 'clusters',
+                                 flavor = "UCell",cluster_rows = T,
+                                 input_gene_list = sigs, ncores = 16, 
+                                 max.cutoff = .16, storeRanks = T,
+                                 cluster_cols = T)
+dev.off()
+
+first = UCell::AddModuleScore_UCell(first, features = sigs, assay = 'SCT',ncores = 16)
 uc = colnames(first@meta.data[grepl("UCell", colnames(first@meta.data))])
 names(sigs) = uc
-
-SCpubr::do_EnrichmentHeatmap(sample = first, group.by = 'clusters',flavor = "UCell",
-                                  input_gene_list = sigs, ncores = 16, )
 
 pdf('/media/chang/HDD-8/chang/aparna/pdfs/first_sig_scores.pdf', width = 10)
 FeaturePlot(first, order=T, max.cutoff = 'q98', ncol = 3,
@@ -252,6 +303,13 @@ dev.off()
 
 pdf("/media/chang/HDD-8/chang/aparna/pdfs/first_bar_age.pdf")
 SCpubr::do_BarPlot(first, group.by = "Age", 
+                         split.by = "clusters",
+                         plot.title = "Number of cells per age in each cluster",
+                         position = "stack")
+dev.off()
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/first_bar_sample.pdf")
+SCpubr::do_BarPlot(first, group.by = "Sample", 
                          split.by = "clusters",
                          plot.title = "Number of cells per sample in each cluster",
                          position = "stack")
@@ -286,94 +344,634 @@ SCpubr::do_CorrelationPlot(sample = first, column_names_rot = 45,
 dev.off()
 
 
-network <- decoupleR::get_dorothea(organism = "human",
+network <- get_dorothea(organism = "human",
                                    levels = c("A", "B", "C"))
-activities <- decoupleR::run_wmean(mat = as.matrix(first@assays[["SCT"]]@data),
+activities <- run_wmean(mat = as.matrix(first@assays[["SCT"]]@data),
                                    network = network,
                                    .source = "source",
                                    .targe = "target",
                                    .mor = "mor",
                                    times = 100,
                                    minsize = 5)
-saveRDS(activities, file='activities.rds')
+saveRDS(activities, file='first_tf_activities.rds')
+activities = readRDS("/media/chang/HDD-8/chang/aparna/first_tf_activities.rds")
 
-SCpubr::do_TFActivityPlot(sample = first,
-                                 activities = activities,
-                                 n_tfs = 40)
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/first_tf.pdf")
+SCpubr::do_TFActivityPlot(sample = first, max.cutoff = 1.5,min.cutoff = 1.5,
+                                 activities = activities,rotate_x_axis_labels = 90,
+                                 n_tfs = 30)
+dev.off()
 
+network <- get_progeny(organism = "human")
+activities <- run_wmean(mat = as.matrix(first@assays[["SCT"]]@data),
+                                   network = network,
+                                   .source = "source",
+                                   .targe = "target",
+                                   .mor = "weight",
+                                   times = 100,
+                                   minsize = 5)
+saveRDS(activities, file="first_progeny_activities.rds")
+
+activities = readRDS('first_progeny_activities.rds')
+
+pdf('/media/chang/HDD-8/chang/aparna/pdfs/first_pathway.pdf')
+do_PathwayActivityPlot(sample = first, activities = activities,max.cutoff = 1,
+                       min.cutoff = -1,group.by = "clusters")
+dev.off()
+
+first.markers = FindAllMarkers(first ,only.pos = T)
+saveRDS(first.markers,file="/media/chang/HDD-8/chang/aparna/first_markers.rds")
+
+first.markers = readRDS("/media/chang/HDD-8/chang/aparna/first_markers.rds")
+first.markers = first.markers[!grepl("MIR",first.markers$gene),]
+first.markers = first.markers[!grepl("AC0",first.markers$gene),]
+first.markers = first.markers[!grepl("AL0",first.markers$gene),]
+first.markers = first.markers[!grepl("MT-",first.markers$gene),]
+first.markers = first.markers[!grepl("LINC",first.markers$gene),]
+first.markers = first.markers[!grepl("RPS",first.markers$gene),]
+first.markers = first.markers[!grepl("RPL",first.markers$gene),]
+first.markers = first.markers[!grepl("FP236",first.markers$gene),]
+
+top5_markers <- Extract_Top_Markers(marker_dataframe = first.markers, 
+                                    num_genes = 3, named_vector = FALSE,make_unique = TRUE)
+top5_markers = unique(c(top5_markers,"TCF7L2", "GBX2", "LHX2", "LHX9", "LHX1", "LHX5", 
+                 "SOX14", "PAX6", "OLIG3"))
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/first_dotplot.pdf", height = 10)
+Clustered_DotPlot(seurat_object = first, features = top5_markers, x_lab_rotate = 90)
+dev.off()
+
+pdf('/media/chang/HDD-8/chang/aparna/pdfs/first_feature.pdf', width = 14)
+FeaturePlot(first, features = c("LUM","HES1","EYA2","LHX9","ASCL1","GAD1","ISL1","LHX1"), ncol=4,order=T,max.cutoff = 'q98') & NoAxes() & scale_color_viridis()
+dev.off()
 ```
 
 ```{r}
 second = readRDS("/media/chang/HDD-8/chang/aparna/second.rds")
-second = SCTransform(second, vst.flavor='v2', assay='cleaned')
+second = SCTransform(second, vst.flavor='v2', assay='cleaned', variable.features.n = 2000)
 
 VariableFeatures(second) = VariableFeatures(second)[!grepl("MT-", VariableFeatures(second))]
 VariableFeatures(second) = VariableFeatures(second)[!grepl("MALAT1", VariableFeatures(second))]
 VariableFeatures(second) = VariableFeatures(second)[!grepl("RPS", VariableFeatures(second))]
 VariableFeatures(second) = VariableFeatures(second)[!grepl("RPL", VariableFeatures(second))]
 
+second$cell = "Cell"
+second$cell[second$orig.ident == "510_Thal"] = "Nuclei"
+second$cell[second$orig.ident == "611_Thal"] = "Nuclei"
+second$cell[second$orig.ident == "993_Thal"] = "Nuclei"
+second$Age[second$Sample == "611"] = "GW17"
+
 second = RunPCA(second, npcs=30)
-second = RunHarmony(second, group.by.vars="Sample", assay.use="SCT")
+second = RunHarmony(second, group.by.vars=c("Sample"), assay.use="SCT",
+                    kmeans_init_nstart=20, kmeans_init_iter_max=100)
 second = RunUMAP(second, dims=1:30, reduction='harmony')
 second = FindNeighbors(second, dims=1:30, reduction='harmony')
+second = FindClusters(second, algorithm=2, resolution=1)
+second = FindClusters(second, algorithm=2, resolution=.8)
+second = FindClusters(second, algorithm=2, resolution=.6)
+second = FindClusters(second, algorithm=2, resolution=.5)
 second = FindClusters(second, algorithm=2, resolution=.4)
 second = FindClusters(second, algorithm=2, resolution=.3)
 second = FindClusters(second, algorithm=2, resolution=.2)
 second = FindClusters(second, algorithm=2, resolution=.1)
 
 saveRDS(second, file='second.rds')
-
 ```
 
 ```{r}
-first <- SetupForWGCNA(
-  first,
-  gene_select = "fraction", # the gene selection approach
-  fraction = 0.01, # fraction of cells that a gene needs to be expressed in order to be included
-  wgcna_name = "cleaned" # the name of the hdWGCNA experiment
-)
+second = readRDS("/media/chang/HDD-8/chang/aparna/second.rds")
 
-first <- MetacellsByGroups(
-  seurat_obj = first,reduction = 'harmony', target_metacells=2000,
-  group.by = c("SCT_snn_res.0.5"), # specify the columns in seurat_obj@meta.data to group by
-  k = 25,
-  max_shared = 10, # maximum number of shared cells between two metacells
-  ident.group = 'SCT_snn_res.0.5' # set the Idents of the metacell seurat object
-)
+second = AddModuleScore_UCell(second, features = sigs, assay = 'SCT',ncores = 16)
 
-first <- NormalizeMetacells(first)
+saveRDS(second, file="/media/chang/HDD-8/chang/aparna/second.rds")
+  
+markers = wilcoxauc(second, seurat_assay = "SCT")
 
-GetMetacellObject(first)@assays$cleaned@data
+FeaturePlot(second, features = c("GAD1","DLX2","LHX9","OLIG1","AIF1","AQP4",
+                                 "MKI67","BCAS1","FOXJ1","GLI3","HOPX","RSPH1"), ncol = 4, order=T,max.cutoff = 'q98') & NoAxes() & scale_color_viridis()
+
+second$clusters = as.character(second$SCT_snn_res.0.4)
+second$clusters[second$clusters == '0'] = "GL1"
+second$clusters[second$clusters == '31'] = "GL1"
+second$clusters[second$clusters == '9'] = "GL2"
+second$clusters[second$clusters == '7'] = "AC"
+second$clusters[second$clusters == '16'] = "EP"
+second$clusters[second$clusters == '12'] = "Div"
+second$clusters[second$clusters == '6'] = "IPC1"
+second$clusters[second$clusters == '11'] = "IPC2"
+second$clusters[second$clusters == '20'] = "IPC2"
+second$clusters[second$clusters == '4'] = "OPC"
+second$clusters[second$clusters == '28'] = "OPC"
+second$clusters[second$clusters == '21'] = "OL"
+second$clusters[second$clusters == '10'] = "MG"
+second$clusters[second$clusters == '19'] = "PC"
+second$clusters[second$clusters == '24'] = "FB"
+second$clusters[second$clusters == '23'] = "RBC"
+second$clusters[second$clusters == '14'] = "EC"
+second$clusters[second$clusters == "2"] = "IN1"
+second$clusters[second$clusters == "27"] = "IN1"
+second$clusters[second$clusters == "29"] = "IN1"
+second$clusters[second$clusters == "32"] = "IN1"
+second$clusters[second$clusters == '8'] = "IN2"
+second$clusters[second$clusters == '18'] = "IN3"
+second$clusters[second$clusters == '3'] = "IN4"
+second$clusters[second$clusters == '13'] = "IN5"
+second$clusters[second$clusters == '1'] = "EN1"
+second$clusters[second$clusters == '25'] = "EN1"
+second$clusters[second$clusters == '22'] = "EN1"
+second$clusters[second$clusters == '5'] = "EN2"
+second$clusters[second$clusters == '15'] = "IN6"
+second$clusters[second$clusters == '26'] = "IN6"
+second$clusters[second$clusters == '30'] = "IN6"
+second$clusters[second$clusters == '33'] = "IN6"
+second$clusters[second$clusters == '17'] = "IN7"
+Idents(second) = second$clusters
+
+DimPlot_scCustom(second, group.by = 'clusters', label=T)
+
+saveRDS(second, file="/media/chang/HDD-8/chang/aparna/second.rds")
+
+second.markers = FindAllMarkers(second ,only.pos = T)
+saveRDS(second.markers,file="/media/chang/HDD-8/chang/aparna/second_markers.rds")
+
+second.markers = readRDS("/media/chang/HDD-8/chang/aparna/second_markers.rds")
+second.markers = second.markers[!grepl("MIR",second.markers$gene),]
+second.markers = second.markers[!grepl("AC0",second.markers$gene),]
+
+top5_markers <- Extract_Top_Markers(marker_dataframe = second.markers, 
+                                    num_genes = 2, named_vector = FALSE, make_unique = TRUE)
+top5_markers = c(top5_markers,"LHX9", "GAD1","LHX1","S100A6","EYA2","FOXP2","SOX2",
+                 "FOXG1","HES1","P2RY12","MKI67","SLC17A6", "PTPRZ1")
+pdf('/media/chang/HDD-8/chang/aparna/pdfs/second_clustered_dotplot.pdf', 
+    height = 9, width = 7)
+Clustered_DotPlot(seurat_object = second, features = top5_markers, 
+                  x_lab_rotate = 90,show_parent_dend_line = F)
+dev.off()
+
+first.markers = readRDS("~/first_markers.rds")
+first.markers = first.markers[!grepl("RPL", first.markers$gene),]
+first.markers = first.markers[!grepl("RPS", first.markers$gene),]
+first.markers = first.markers[!grepl("MT-", first.markers$gene),]
+first.markers = first.markers[!grepl("FP", first.markers$gene),]
+first.markers = first.markers[!grepl("AC0", first.markers$gene),]
+first.markers = first.markers[!grepl("AL1", first.markers$gene),]
+first.markers = first.markers[!grepl("LINC", first.markers$gene),]
+first.markers = first.markers[!grepl("MIR", first.markers$gene),]
+first.markers = split(first.markers, first.markers$cluster)
+sigs = lapply(first.markers, function(i){
+  intersect(i$gene, rownames(second))[1:15]
+})
+do_EnrichmentHeatmap(sample = second, group.by = 'clusters',flavor = "UCell",
+                     cluster_rows = T,input_gene_list = sigs, ncores = 16, 
+                     max.cutoff = .16, storeRanks = T, cluster_cols = T)
 
 
-first <- SetDatExpr(
-  first,
-  group_name = "SCT_snn_res.0.5", # the name of the group of interest in the group.by column
-  group.by='SCT_snn_res.0.5', # the metadata column containing the cell type info. This same column should have also been used in MetacellsByGroups
-  assay = 'cleaned', # using RNA assay
-  slot = 'data' # using normalized data
-)
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/second_umap_area.pdf", width = 10)
+  do_DimPlot(second, group.by = "Area")
+dev.off()
 
-first <- TestSoftPowers(
-  first,
-  networkType = 'signed' # you can also use "unsigned" or "signed hybrid"
-)
-
-# plot the results:
-plot_list <- PlotSoftPowers(first)
-
-# assemble with patchwork
-wrap_plots(plot_list, ncol=2)
-
-first <- ConstructNetwork(
-  first, soft_power=3,
-  setDatExpr=FALSE,
-  tom_name = 'INH' # name of the topoligical overlap matrix written to disk
-)
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/second_umap_clusters.pdf", width = 10)
+  do_DimPlot(second, label=T)
+dev.off()
 
 
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/second_sig_all.pdf", width = 12)
+FeaturePlot(second, features = uc[1:12], ncol = 4, order=T,max.cutoff = 'q98') & NoAxes() &
+  scale_color_viridis()
+dev.off()
 
-saveRDS(first, file='/media/chang/HDD-8/chang/aparna/first.rds')
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/second_sig_all2.pdf", width = 12)
+FeaturePlot(second, features = uc[13:23], ncol = 4, order=T,max.cutoff = 'q98') & NoAxes() &
+  scale_color_viridis()
+dev.off()
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/second_bar_area.pdf", width = 10)
+do_BarPlot(second, group.by = "Area", split.by = "clusters",
+                         plot.title = "Area",
+                         position = "fill",
+                         flip = FALSE)
+dev.off()
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/second_bar_age.pdf", width = 10)
+do_BarPlot(second, group.by = "Age", split.by = "clusters",
+                         plot.title = "Age",
+                         position = "fill",
+                         flip = FALSE)
+dev.off()
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/second_bar_sample.pdf", width = 10)
+do_BarPlot(second, group.by = "Sample", split.by = "clusters",
+                         plot.title = "Sample",
+                         position = "fill",
+                         flip = FALSE)
+dev.off()
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/second_crabp1.pdf")
+do_FeaturePlot(sample = second, features = "CRABP1", order = T, max.cutoff = 98,
+                             plot.title = "CRABP1", reduction = "umap")
+dev.off()
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/second_merfish_dotplot.pdf", 
+    height = 13,  width = 8)
+Clustered_DotPlot(seurat_object = second, features = rownames(gw19), x_lab_rotate = 90)
+dev.off()
+
+uc = colnames(second@meta.data[grepl("UCell", colnames(second@meta.data))])
+names(sigs) = uc
+do_EnrichmentHeatmap(sample = second, group.by = 'clusters', flavor = "UCell",
+                     cluster_rows = T,input_gene_list = sigs, ncores = 16, 
+                                 storeRanks = T,cluster_cols = T, max.cutoff = .16)
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/second_cor.pdf", height=10, width=10)
+  do_CorrelationPlot(sample = second,  cell_size = 10, group.by="clusters")
+dev.off()
+
+
+FeaturePlot(second, features = c("TSHZ2", "LRP2", "SEMA5A", "PKIB", "CD247",
+                                 "DPYD", "PENK", "TAC1", "CDH9", "CHRM3", "CALB1",
+                                 "CHRM5"), ncol=4,order=T,max.cutoff = 'q98') & NoAxes() & scale_color_viridis()
+
+FeaturePlot(second, features = c("ETV1", "KCTD8", "ITGA8", "TLL1", "INHBA", "PVALB"), 
+            ncol=3,order=T,max.cutoff = 'q98') & NoAxes() & scale_color_viridis()
+
+network <- get_progeny(organism = "human")
+activities <- run_wmean(mat = as.matrix(second@assays[["SCT"]]@data),
+                                   network = network,
+                                   .source = "source",
+                                   .targe = "target",
+                                   .mor = "weight",
+                                   times = 100,
+                                   minsize = 5)
+saveRDS(activities, file="second_progeny_activities.rds")
+
+network2 <- get_dorothea(organism = "human",
+                                   levels = c("A", "B", "C"))
+second_subset1 = subset(second, cells = colnames(second)[1:46000])
+second_subset2 = subset(second, cells = colnames(second)[46001:92000])
+second_subset3 = subset(second, cells = colnames(second)[92001:137761])
+activities2 <- run_wmean(mat = as.matrix(second_subset1@assays[["SCT"]]@data),
+                                   network = network2,
+                                   .source = "source",
+                                   .targe = "target",
+                                   .mor = "mor",
+                                   times = 100,
+                                   minsize = 5)
+activities3 <- run_wmean(mat = as.matrix(second_subset2@assays[["SCT"]]@data),
+                                   network = network2,
+                                   .source = "source",
+                                   .targe = "target",
+                                   .mor = "mor",
+                                   times = 100,
+                                   minsize = 5)
+activities4 <- run_wmean(mat = as.matrix(second_subset3@assays[["SCT"]]@data),
+                                   network = network2,
+                                   .source = "source",
+                                   .targe = "target",
+                                   .mor = "mor",
+                                   times = 100,
+                                   minsize = 5)
+saveRDS(activities2, file="second_activities.rds")
+
+activities = readRDS("/media/chang/HDD-8/chang/aparna/second_tf_activities.rds")
+
+second$class = "Brain"
+second$class[second$clusters == "PC"] = "Vasc"
+second$class[second$clusters == "EC"] = "Vasc"
+second$class[second$clusters == "FB"] = "Vasc"
+second$class[second$clusters == "RBC"] = "Vasc"
+test = subset(second, subset=class== "Brain")
+activities2 = activities[activities$condition %in% colnames(test),]
+
+pdf('/media/chang/HDD-8/chang/aparna/pdfs/second_tf.pdf')
+SCpubr::do_TFActivityPlot(sample = test,max.cutoff = 2,min.cutoff = -1,rotate_x_axis_labels = 90,
+                                 activities = activities2, n_tfs = 20)
+dev.off()
+
+activities = readRDS('second_progeny_activities.rds')
+activities3 = activities[activities$condition %in% colnames(test),]
+
+pdf('/media/chang/HDD-8/chang/aparna/pdfs/second_pathway.pdf')
+do_PathwayActivityPlot(sample = test, activities = activities3,max.cutoff = 1.5,
+                       min.cutoff = -1,group.by = "clusters")
+dev.off()
+
+area_deg = FindMarkers(second, subset.ident = "IN4", group.by = "Area", 
+                       ident.1 = "dorsal_thalamus", max.cells.per.ident = 1400)
+area_deg2 = FindMarkers(second, subset.ident = "IN1", group.by = "Area", 
+                       ident.1 = "ventral_thalamus", max.cells.per.ident = 700)
+area_deg3 = FindMarkers(second, subset.ident = "GL1", group.by = "Area", 
+                       ident.1 = "dorsal_thalamus", ident.2 = "ventral_thalamus",
+                       max.cells.per.ident = 1500)
+area_deg4 = FindMarkers(second, subset.ident = "MG", group.by = "Area", 
+                       ident.1 = "dorsal_thalamus", ident.2 = "ventral_thalamus",
+                       max.cells.per.ident = 500)
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/second_box_umi.pdf", width = 10)
+do_BoxPlot(sample = second, feature = "nCount_RNA", group.by = 'clusters') +do_BoxPlot(sample = second, feature = "nCount_RNA", group.by = "Sample") & ylim(500,5000)
+dev.off()
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/second_box_mt.pdf", width = 10)
+do_BoxPlot(sample = second, feature = "percent.mt") +do_BoxPlot(sample = second, feature = "percent.mt", group.by = "Sample") & ylim(0,10)
+dev.off()
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/second_box_doublet.pdf", width = 10)
+do_BoxPlot(sample = second, feature = "hybrid_score") +do_BoxPlot(sample = second, feature = "hybrid_score", group.by = "Sample") & ylim(0,1.5)
+dev.off()
+
+
+
+circ_data <- prepare_circlize_data(second, scale = 0.8 )
+cluster_colors<-dittoColors()[1:length(levels(second))]
+group_colors<-dittoColors()[1:length(names(table(second$Sample)))]
+area_colors <-dittoColors()[1:length(names(table(second$Area)))]
+age_colors <-dittoColors()[1:length(names(table(second$Age)))]
+
+###plot and save figures
+png(filename =  '/media/chang/HDD-8/chang/aparna/pdfs/circlize_plot.png', 
+    width = 6, height = 6,units = 'in', res = 300)
+plot_circlize(circ_data,do.label = T, pt.size = 0.01, col.use = cluster_colors,
+              bg.color = 'white', kde2d.n = 200, repel = T, label.cex = 0.6)
+add_track(circ_data, group = "Sample", colors = group_colors, track_num = 2) 
+add_track(circ_data, group = "Area",colors = area_colors, track_num = 3) 
+add_track(circ_data, group = "Age",colors = age_colors, track_num = 4) 
+dev.off()
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/dittobar_sample.pdf")
+dittoBarPlot(second, var='Sample', group.by = "ident")
+dev.off()
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/dittobar_age.pdf")
+dittoBarPlot(second, var='Age', group.by = "ident")
+dev.off()
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/dittobar_area.pdf")
+dittoBarPlot(second, var='Area', group.by = "ident")
+dev.off()
+```
+
+
+```{r}
+gw19 = readRDS("/media/chang/HDD-8/chang/aparna/vizgen_gw19.obj.rds")
+
+markers = FindAllMarkers(gw19, only.pos = T)
+top5_markers <- Extract_Top_Markers(marker_dataframe = markers, named_vector = FALSE,
+                                    num_genes = 50,make_unique = TRUE)
+Clustered_DotPlot(seurat_object = gw19, features = rownames(gw19))
+
+gw19$clusters = as.character(gw19$SCT_snn_res.0.5)
+gw19$clusters[gw19$clusters == "0"] = "OPC"
+gw19$clusters[gw19$clusters == "2"] = "GL"
+gw19$clusters[gw19$clusters == "15"] = "MG"
+gw19$clusters[gw19$clusters == "9"] = "EC"
+gw19$clusters[gw19$clusters == "13"] = "EN"
+gw19$clusters[gw19$clusters == "7"] = "EN_2"
+gw19$clusters[gw19$clusters == "14"] = "EN_3"
+gw19$clusters[gw19$clusters == "12"] = "EN_4"
+gw19$clusters[gw19$clusters == "1"] = "EN_5"
+gw19$clusters[gw19$clusters == "4"] = "IN1"
+gw19$clusters[gw19$clusters == "6"] = "IN3"
+gw19$clusters[gw19$clusters == "5"] = "IN2"
+gw19$clusters[gw19$clusters == "3"] = "IN4"
+gw19$clusters[gw19$clusters == "11"] = "IN5"
+gw19$clusters[gw19$clusters == "8"] = "IN6"
+gw19$clusters[gw19$clusters == "10"] = "IN7"
+Idents(gw19) = gw19$clusters
+
+do_CorrelationPlot(gw19, assay = "SCT")
+
+gw19.avg = AverageExpression(gw19, assays = "SCT")
+second.avg = AverageExpression(second, assays = 'SCT', features = rownames(gw19))
+cor.matrix = cor(gw19.avg$SCT, second.avg$SCT)
+
+pheatmap::pheatmap(cor.matrix, color = viridis(20))
+
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/gw19_clusters.pdf")
+ImageDimPlot(gw19, fov='thal',dark.background = F, cols = dittoColors())
+dev.off()
+
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/gw19_box.pdf", width = 10)
+do_BoxPlot(sample = gw19, feature = "nCount_Vizgen") +ylim(20,500)+do_BoxPlot(sample = gw19, feature = "nFeature_Vizgen") + ylim(0,100)
+dev.off()
+
+
+vizgen = readLines("~/blacklist_vizgen.txt")
+genes = rownames(gw19)[!(rownames(gw19) %in% vizgen)]
+gw23.avg = AverageExpression(gw23, assays = "SCT", features = genes)
+second.avg = AverageExpression(second, assays = 'SCT', features = genes)
+cor.matrix = cor(gw23.avg$SCT, second.avg$SCT)
+
+gw19.avg = AverageExpression(gw19, assays = "SCT", features = genes)
+second.avg = AverageExpression(second, assays = 'SCT', features = genes)
+cor.matrix = cor(gw19.avg$SCT, second.avg$SCT)
+
+pheatmap::pheatmap(cor.matrix, color = viridis(20))
+
+
+gw23 = readRDS("/media/chang/HDD-8/chang/aparna/vizgen_gw23.obj.rds")
+
+gw23.avg = AverageExpression(gw23, assays = "SCT")
+second.avg = AverageExpression(second, assays = 'SCT', features = rownames(gw19))
+cor.matrix = cor(gw23.avg$SCT, second.avg$SCT)
+
+pheatmap::pheatmap(cor.matrix, color = viridis(20))
+
+
+Idents(gw23) = gw23$SCT_snn_res.0.5
+markers = FindAllMarkers(gw23, only.pos = T)
+top5_markers <- Extract_Top_Markers(marker_dataframe = markers, named_vector = FALSE,
+                                    num_genes = 50,make_unique = TRUE)
+Clustered_DotPlot(seurat_object = gw23, features = rownames(gw23))
+
+gw23$clusters = as.character(gw23$clusters)
+gw23$clusters[gw23$clusters == "7"] = "EC"
+gw23$clusters[gw23$clusters == "13"] = "MG"
+gw23$clusters[gw23$clusters == "1"] = "GL"
+gw23$clusters[gw23$SCT_snn_res.0.5 == 15] = "AC"
+gw23$clusters[gw23$clusters == "5"] = "OPC"
+gw23$clusters[gw23$clusters == "3"] = "EN"
+gw23$clusters[gw23$clusters == "2"] = "EN_2"
+gw23$clusters[gw23$clusters == "9"] = "EN_3"
+gw23$clusters[gw23$clusters == "11"] = "EN_4"
+
+gw23$clusters[gw23$clusters == "8"] = "IN5"
+gw23$clusters[gw23$clusters == "4"] = "IN1"
+gw23$clusters[gw23$clusters == "10"] = "IN3"
+gw23$clusters[gw23$clusters == "6"] = "IN6"
+gw23$clusters[gw23$clusters == "12"] = "RT"
+
+Idents(gw23) = gw23$clusters
+
+saveRDS(gw23,"/media/chang/HDD-8/chang/aparna/vizgen_gw23.obj.rds")
+
+
+FeaturePlot(gw23, features = c("GAD1","DLX2","FOXP2","PENK","CRABP1","LHX1"),ncol = 3, order=T, max.cutoff = 'q98') & NoAxes() & scale_color_viridis()
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/gw23_box.pdf", width = 10)
+do_BoxPlot(sample = gw23, feature = "nCount_Vizgen") +ylim(20,500)+do_BoxPlot(sample = gw19, feature = "nFeature_Vizgen") + ylim(0,100)
+dev.off()
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/gw23_clusters.pdf")
+ImageDimPlot(gw23, fov='thal',dark.background = F, cols = dittoColors())
+dev.off()
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/gw23_cm.pdf", width = 10)
+ImageFeaturePlot(gw23, fov = 'thal',max.cutoff = 'q95',dark.background = F,
+                 features = c("INHBA","TLL1","ITGA8","CHRM5","KCTD8","ETV1"))
+dev.off()
+
+pdf("/media/chang/HDD-8/chang/aparna/pdfs/gw23_ventral.pdf", width = 10)
+ImageFeaturePlot(gw23, fov = 'thal',max.cutoff = 'q95',dark.background = F,
+                 features = c("PENK","GABRG1", "TSHZ2", "CDH9"))
+dev.off()
+
+ImageDimPlot(gw23, fov = "thal", cols = c("red", "green", "blue", "orange"), size=.6,
+             cells = WhichCells(gw23, idents = c("EN","EN_2","EN_3","EN_4")))
+ImageDimPlot(gw23, fov = "thal", cols = c("red", "green", "blue", "orange"), size=.6,
+             cells = WhichCells(gw23, idents = c("IN1","IN3","IN5","IN6")))
+
+ImageDimPlot(gw19, fov = "thal", cols = c("red", "green", "blue", "orange", "magenta"), size=.6,
+             cells = WhichCells(gw19, idents = c("EN","EN_2","EN_3","EN_4","EN_5")))
+ImageDimPlot(gw19, fov = "thal", cols = c("red", "green", "blue", "orange", "magenta","yellow","grey"), size=.6, cells = WhichCells(gw19, idents = c("IN1","IN2","IN3","IN4","IN5","IN6","IN7")))
+
+
+write.csv(first.markers, file="/media/chang/HDD-8/chang/aparna/pdfs/first_markers.csv", quote=F)
+write.csv(second.markers, file="/media/chang/HDD-8/chang/aparna/pdfs/second_markers.csv", quote=F)
+writeLines(rownames(gw19),"/media/chang/HDD-8/chang/aparna/pdfs/merfish.txt")
 
 ```
+
+
+```{r}
+anchors <- FindTransferAnchors(
+  reference = second,
+  query = gw19,
+  normalization.method = "SCT",
+  reference.reduction = "harmony",
+  dims = 1:30
+)
+
+gw19 <- MapQuery(
+  anchorset = anchors,
+  query = gw19,
+  reference = second,
+  refdata = list(
+    celltype.l1 = "clusters"
+  ),
+  reference.reduction = "harmony", 
+  reduction.model = "umap"
+)
+
+
+anchors <- FindTransferAnchors(
+  reference = second,
+  query = gw23,
+  normalization.method = "SCT",
+  reference.reduction = "harmony",
+  dims = 1:30
+)
+
+gw23 <- MapQuery(
+  anchorset = anchors,
+  query = gw23,
+  reference = second,
+  refdata = list(
+    celltype.l1 = "clusters"
+  ),
+  reference.reduction = "harmony", 
+  reduction.model = "umap"
+)
+
+ImageDimPlot(gw23, cols = "polychrome")
+ImageDimPlot(gw23, fov = "thal", cols = c("red", "green"), 
+             size=.6,
+             cells = WhichCells(gw23, idents = c("EN1","EN2")))
+ImageDimPlot(gw23, fov = "thal", cols = c("red", "green", "blue", "orange", "magenta"), 
+             size=.6,
+             cells = WhichCells(gw23, idents = c("IN1","IN2","IN4","IN5","IN6")))
+ImageDimPlot(gw23, fov = "thal", cols = "polychrome", size=1,
+             cells = WhichCells(gw23, idents = c("GL1","OPC","Div", "AC", "MG", "EC", "FB","PC"))) + ImageDimPlot(gw23, fov = "thal", cols = "polychrome", size=1,
+             cells = WhichCells(gw23, idents = c("IN1","IN2","IN4","IN5","IN6"))) 
+
+ImageDimPlot(gw23, fov = "thal", cols = "polychrome", size=1,
+             cells = WhichCells(gw23, idents = c("GL1","OPC","Div", "AC")))+ImageDimPlot(gw23, fov = "thal", cols = "polychrome", size=1,
+             cells = WhichCells(gw23, idents = c("MG", "EC", "FB","PC")))
+
+
+ImageDimPlot(gw19, cols = "polychrome")
+ImageDimPlot(gw19, fov = "thal", cols = c("red", "green", "blue", "orange", "magenta","yellow","grey"), 
+             size=.6,
+             cells = WhichCells(gw19, idents = c("IN1","IN2","IN4","IN5","IN6","IN3","IN7")))
+ImageFeaturePlot(gw19, fov = 'thal',max.cutoff = 'q95',
+                 features = c("CRABP1","DLX2","GAD1","LHX1"),dark.background = T)
+ImageDimPlot(gw19, fov = "thal", cols = "polychrome", size=1,
+             cells = WhichCells(gw19, idents = c("GL1","OPC","OL","IPC1","IPC2","AC", "Div", "MG","EC","FB", "PC", "OL"))) + ImageDimPlot(gw19, fov = "thal", cols = "polychrome", size=1,
+             cells = WhichCells(gw19, idents = c("EN1","EN2"))) 
+
+ImageDimPlot(gw19, fov = "thal", cols = "polychrome", size=1,
+             cells = WhichCells(gw19, idents = c("GL1","OPC","OL","AC","Div","OL"))) + 
+  ImageDimPlot(gw19, fov = "thal", cols = "polychrome", size=1,
+             cells = WhichCells(gw19, idents = c("MG","EC","FB", "PC"))) +
+  ImageDimPlot(gw19, fov = "thal", cols = "polychrome", size=1,
+             cells = WhichCells(gw19, idents = c("IPC1","IPC2")))
+
+
+ImageDimPlot(gw19, fov = "thal", cols = "polychrome", alpha = 0.3, molecules = 
+               c("INHBA", "TLL1", "ITGA8", "CHRM5", "KCTD8"), mols.size = 0.3, 
+             nmols = 20000, border.color = "black", coord.fixed = FALSE)
+
+
+
+ImageFeaturePlot(gw23, fov = 'thal',max.cutoff = 'q95',dark.background = T,
+                 features = c("PVALB", "CNTNAP4", "PDE1C","EPHA5"))
+ImageFeaturePlot(gw23, fov = 'thal',max.cutoff = 'q90',dark.background = T,
+                 features = c("GABRG3", "THSD7B", "CCK","DPYD"))
+
+
+ImageFeaturePlot(gw23, fov = 'thal',max.cutoff = 'q90',dark.background = T,
+                 features = c("FOXP2", "FRMPD4", "SORCS1", "GRIK1", 
+                              "LHFPL6", "KIRREL1", "FAM89B", "GRID1", "SNCG", "RARB"))
+ImageFeaturePlot(gw23, fov = 'thal',max.cutoff = 'q90',dark.background = T,
+                 features = c("SOX2", "NR2F1", "PROX1", "CHRM3", "EGFR", 
+                              "TSHZ2", "S100A6", "GABRG1"))
+ImageFeaturePlot(gw23, fov = 'thal',max.cutoff = 'q90',dark.background = T,
+                 features = c("CBLN2", "NFIB", "ALCAM", "SEMA5A", "ZEB2", "PCDH9", 
+                              "TLE4", "CDH9"))
+ImageFeaturePlot(gw23, fov = 'thal',max.cutoff = 'q90',dark.background = T,
+                 features = c("CRTAC1", "ZFHX4", "LSAMP", "TRH"))
+ImageFeaturePlot(gw23, fov = 'thal',max.cutoff = 'q90',dark.background = T,
+                 features = c("CA10", "UNC5C", "MTUS2", "CLMP", "GRIN3A", "LHX9", 
+                              "EPHA3", "GBX2", "WLS"))
+
+
+ImageFeaturePlot(gw19, fov = 'thal',max.cutoff = 'q95',dark.background = T,
+                 features = c( "ITGA8", "OPRM1","GABRG1", "TSHZ2","SOX14","TCF7L2",
+                               "LHX1","EPHA5","PAX6"))
+
+ImageFeaturePlot(gw19, fov = 'thal',max.cutoff = 'q95',dark.background = T,
+                 features = c())
+ImageFeaturePlot(gw19, fov = 'thal',max.cutoff = 'q95',dark.background = T,
+                 features = c("LHX1","EPHA5","PAX6"))
+
+
+
+
+DotPlot_scCustom(gw19, features = c("INHBA", "TLL1", "ITGA8","CHRM5", "KCTD8",
+                                    "OPRM1","PENK",  "GABRG1", "TSHZ2", "CDH9"),
+                 x_lab_rotate = 90)
+
+
+
+p1 = ImageDimPlot(gw19, fov = "thal", cols = "polychrome", size=.1, 
+                  coord.fixed = T, axes = T)
+crop <- Crop(gw19[["thal"]], x = c(1000, 3000), y = c(4000, 6500))
+gw19[["zoom1"]] <- crop
+DefaultBoundary(gw19[["zoom1"]]) <- "segmentation"
+
+ImageDimPlot(gw19, fov = "zoom1", size=1,cols="polychrome", molecules = c("GPNMB","SPP1","DCN"),
+             mols.size = 1,cells = WhichCells(gw19, 
+                                idents = c("GL1","OPC","OL","AC","Div","OL", "MG","EC","FB","PC"))) 
+```
+
+
 
