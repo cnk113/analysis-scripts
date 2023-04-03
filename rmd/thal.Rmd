@@ -972,6 +972,48 @@ ImageDimPlot(gw19, fov = "zoom1", size=1,cols="polychrome", molecules = c("GPNMB
              mols.size = 1,cells = WhichCells(gw19, 
                                 idents = c("GL1","OPC","OL","AC","Div","OL", "MG","EC","FB","PC"))) 
 ```
+New merfish markers
+```{r}
+first = readRDS("/media/chang/HDD-7/chang/aparna/first.rds")
+second = readRDS("/media/chang/HDD-7/chang/aparna/second_small.rds")
+
+first.markers = readRDS("/media/chang/HDD-7/chang/aparna/first_markers.rds")
+first.markers = first.markers[!grepl("MIR",first.markers$gene),]
+first.markers = first.markers[!grepl("AC0",first.markers$gene),]
+first.markers = first.markers[!grepl("AL0",first.markers$gene),]
+first.markers = first.markers[!grepl("MT-",first.markers$gene),]
+first.markers = first.markers[!grepl("LINC",first.markers$gene),]
+first.markers = first.markers[!grepl("RPS",first.markers$gene),]
+first.markers = first.markers[!grepl("RPL",first.markers$gene),]
+first.markers = first.markers[!grepl("FP236",first.markers$gene),]
+top5_markers <- Extract_Top_Markers(marker_dataframe = first.markers, 
+                                    num_genes = 6, named_vector = FALSE,make_unique = TRUE)
+Clustered_DotPlot(seurat_object = first, features = top5_markers, x_lab_rotate = 90)
+
+first.cleaned = first
+first.cleaned[['unspliced']] = NULL
+first.cleaned[['spliced']] = NULL
+first.cleaned[['TE']] = NULL
+saveRDS(first.cleaned, file='/media/chang/HDD-7/chang/aparna/second_markers_cleaned.rds')
 
 
+
+second.markers = FindAllMarkers(second, assay = 'cleaned')
+saveRDS(second.markers, file='/media/chang/HDD-7/chang/aparna/second_markers_cleaned.rds')
+second.markers = readRDS("/media/chang/HDD-7/chang/aparna/second_markers_cleaned.rds")
+second.markers = second.markers[!grepl("MIR",second.markers$gene),]
+second.markers = second.markers[!grepl("AC0",second.markers$gene),]
+top5_markers <- Extract_Top_Markers(marker_dataframe = second.markers, 
+                                    num_genes = 4, named_vector = FALSE, make_unique = TRUE)
+Clustered_DotPlot(seurat_object = second, features = top5_markers, 
+                  x_lab_rotate = 90,show_parent_dend_line = F)
+
+
+gw23 = readRDS("/media/chang/HDD-7/chang/aparna/vizgen_gw23_2.obj.rds")
+gw23.markers = FindAllMarkers(gw23)
+top5_markers <- Extract_Top_Markers(marker_dataframe = gw23.markers, 
+                                    num_genes = 4, named_vector = FALSE, make_unique = TRUE)
+Clustered_DotPlot(seurat_object = gw23, features = top5_markers, 
+                  x_lab_rotate = 90,show_parent_dend_line = F)
+```
 

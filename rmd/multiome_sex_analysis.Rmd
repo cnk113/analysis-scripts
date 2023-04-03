@@ -1,0 +1,167 @@
+---
+title: "Sex analysis multiome"
+output: html_notebook
+---
+
+```{r}
+library(Seurat)
+library(ggplot2)
+library(scCustomize)
+library(dplyr)
+library(harmony)
+library(dittoSeq)
+library(variancePartition)
+
+seurat = readRDS("/media/chang/HDD-12/rachel/SSDscRNAseq_wGeno.rds")
+
+VlnPlot(seurat, features = "XIST", group.by = "donor")
+VlnPlot(seurat, features = 'nFeature_RNA', group.by = 'donor') & ylim(200,2000)
+
+
+seurat = SCTransform(seurat, vst.flavor='v2')
+seurat = RunPCA(seurat, npcs = 20)
+seurat = RunHarmony(seurat, group.by.vars = 'orig.ident')
+seurat = RunUMAP(seurat, dims=1:20, reduction = 'harmony')
+seurat = FindNeighbors(seurat, dims=1:20, reduction = 'harmony')
+seurat = FindClusters(seurat, algorithm = 2, resolution = .3)
+seurat = FindClusters(seurat, algorithm = 2, resolution = .4)
+
+DimPlot(seurat, group.by = 'SCT_snn_res.0.3', label =T)
+Idents(seurat) = seurat$SCT_snn_res.0.3
+markers = FindAllMarkers(seurat, only.pos = T)
+
+top5_markers <- Extract_Top_Markers(marker_dataframe = markers, num_genes = 5, 
+                                    named_vector = FALSE, make_unique = TRUE)
+Clustered_DotPlot(seurat_object = seurat, features = top5_markers)
+
+seurat$clusters = as.character(seurat$SCT_snn_res.0.3)
+seurat$clusters[seurat$clusters == 11] = "MG"
+seurat$clusters[seurat$clusters == 9] = "OPC"
+seurat$clusters[seurat$clusters == 4] = "RG"
+seurat$clusters[seurat$clusters == 12] = "vSMC"
+seurat$clusters[seurat$clusters == 3] = "IPC"
+seurat$clusters[seurat$clusters == 6] = "IN"
+seurat$clusters[seurat$clusters == 5] = "EN"
+
+DimPlot(seurat, group.by = "clusters", label=T)
+
+table(seurat$clusters, seurat$Genotype)
+
+dittoBarPlot(seurat, var='Genotype', group.by = 'clusters')
+
+Idents(seurat) = seurat$clusters
+
+DefaultAssay(seurat) = "RNA"
+seurat = NormalizeData(seurat)
+
+en_deg = FindMarkers(seurat, group.by = "Genotype", ident.1 = "XX", ident.2 = "XY", 
+                     subset.ident = "EN", logfc.threshold = 0, max.cells.per.ident = 1700)
+in_deg = FindMarkers(seurat, group.by = "Genotype", ident.1 = "XX", ident.2 = "XY", 
+                     subset.ident = "IN", logfc.threshold = 0, max.cells.per.ident = 1800)
+rg_deg = FindMarkers(seurat, group.by = "Genotype", ident.1 = "XX", ident.2 = "XY", 
+                     subset.ident = "RG", logfc.threshold = 0, max.cells.per.ident = 1800)
+ipc_deg = FindMarkers(seurat, group.by = "Genotype", ident.1 = "XX", ident.2 = "XY", 
+                     subset.ident = "IPC", logfc.threshold = 0, max.cells.per.ident = 1800)
+opc_deg = FindMarkers(seurat, group.by = "Genotype", ident.1 = "XX", ident.2 = "XY", 
+                     subset.ident = "OPC", logfc.threshold = 0, max.cells.per.ident = 600)
+mg_deg = FindMarkers(seurat, group.by = "Genotype", ident.1 = "XX", ident.2 = "XY", 
+                     subset.ident = "MG", logfc.threshold = 0, max.cells.per.ident = 71)
+
+write.csv(en_deg, file = "multiome_en_deg.csv", quote = F)
+write.csv(in_deg, file = "multiome_in_deg.csv", quote = F)
+write.csv(rg_deg, file = "multiome_rg_deg.csv", quote = F)
+write.csv(ipc_deg, file = "multiome_ipc_deg.csv", quote = F)
+write.csv(opc_deg, file = "multiome_opc_deg.csv", quote = F)
+write.csv(mg_deg, file = "multiome_mg_deg.csv", quote = F)
+
+seurat2 = subset(seurat, idents = c("EN","IN","IPC","RG","OPC","MG"))
+
+SCpubr::do_VolcanoPlot(sample = seurat,n_genes = 10,plot.title = "EN",
+                            de_genes = en_deg,add_gene_tags = T,
+                            pval_cutoff = 1e-50,order_tags_by = "both",
+                            FC_cutoff = 0.2)
+
+saveRDS(seurat, file="/media/chang/HDD-1/chang/multiome_rna.rds")
+
+VlnPlot(seurat2, features = c("PDE4D","SOX5","CADM2","FOXG1","TENM2","MEF2C","CCDC144A","PABPC1","SCN3A"), group.by = 'clusters', split.by = "Genotype")
+
+genes = readLines("multiome_genes.txt")
+
+pdf('multiome_genes_en.pdf', width = 12)
+VlnPlot(seurat2, features = genes[1:9], group.by = 'clusters', split.by = "Genotype")
+VlnPlot(seurat2, features = genes[10:18], group.by = 'clusters', split.by = "Genotype")
+VlnPlot(seurat2, features = genes[19:27], group.by = 'clusters', split.by = "Genotype")
+VlnPlot(seurat2, features = genes[28:36], group.by = 'clusters', split.by = "Genotype")
+VlnPlot(seurat2, features = genes[37:45], group.by = 'clusters', split.by = "Genotype")
+VlnPlot(seurat2, features = genes[46:53], group.by = 'clusters', split.by = "Genotype")
+dev.off()
+
+genes2 = readLines("multiome_genes_in.txt")
+
+pdf('multiome_genes_in.pdf', width = 12)
+VlnPlot(seurat2, features = genes2[1:9], group.by = 'clusters', split.by = "Genotype")
+VlnPlot(seurat2, features = genes2[10:18], group.by = 'clusters', split.by = "Genotype")
+VlnPlot(seurat2, features = genes2[19:27], group.by = 'clusters', split.by = "Genotype")
+VlnPlot(seurat2, features = genes2[28:36], group.by = 'clusters', split.by = "Genotype")
+VlnPlot(seurat2, features = genes2[37:45], group.by = 'clusters', split.by = "Genotype")
+VlnPlot(seurat2, features = genes2[46:54], group.by = 'clusters', split.by = "Genotype")
+VlnPlot(seurat2, features = genes2[55:63], group.by = 'clusters', split.by = "Genotype")
+VlnPlot(seurat2, features = genes2[64:72], group.by = 'clusters', split.by = "Genotype")
+VlnPlot(seurat2, features = genes2[73:78], group.by = 'clusters', split.by = "Genotype")
+dev.off()
+
+batch_en = FindMarkers(seurat, subset.ident = "EN", group.by = "orig.ident",
+                       ident.1 = "SSD", ident.2 = "SSD24", max.cells.per.ident = 1700)
+batch_in = FindMarkers(seurat, subset.ident = "IN", group.by = "orig.ident",
+                       ident.1 = "SSD", ident.2 = "SSD24", max.cells.per.ident = 1400)
+batch_rg = FindMarkers(seurat, subset.ident = "RG", group.by = "orig.ident",
+                       ident.1 = "SSD", ident.2 = "SSD24", max.cells.per.ident = 2000)
+batch_ipc = FindMarkers(seurat, subset.ident = "IPC", group.by = "orig.ident",
+                       ident.1 = "SSD", ident.2 = "SSD24", max.cells.per.ident = 1400)
+batch_opc = FindMarkers(seurat, subset.ident = "OPC", group.by = "orig.ident",
+                       ident.1 = "SSD", ident.2 = "SSD24", max.cells.per.ident = 700)
+batch_mg = FindMarkers(seurat, subset.ident = "MG", group.by = "orig.ident",
+                       ident.1 = "SSD", ident.2 = "SSD24", max.cells.per.ident = 90)
+
+batch = Reduce(intersect, list(rownames(batch_en), rownames(batch_in), rownames(batch_rg),
+                               rownames(batch_ipc), rownames(batch_opc), rownames(batch_mg)))
+writeLines(batch,"batch_deg.txt")
+
+genes3 = readLines("batch_deg2.txt")
+
+VlnPlot(seurat2, features = genes3[1:9], group.by = 'donor', 
+        split.by = "orig.ident",split.plot = F)
+VlnPlot(seurat2, features = genes3[10:19], group.by = 'donor', 
+        split.by = "orig.ident", split.plot = F)
+
+VlnPlot(seurat2, features = batch[1:12], group.by = 'donor', 
+        split.by = "orig.ident",split.plot = F)
+
+seurat2$Batch = seurat2$orig.ident
+seurat3$Batch = seurat3$orig.ident
+
+
+seurat2 = FindVariableFeatures(seurat2, nfeatures = 5000)
+seurat2 = SCTransform(seurat2, vst.flavor='v2')
+
+vp_genes = readLines("vp_genes.txt")
+form <- ~ (1|donor) + (1|Genotype) + (1|Batch) + (1|clusters)
+varPart <- fitExtractVarPartModel(as.matrix(seurat2@assays$RNA@data[rownames(seurat2@assays$SCT@data),]), 
+                                  form, seurat2@meta.data)
+write.csv(varPart, file = "multiome_vp.csv", quote = F)
+
+seurat3 = subset(seurat2, idents = "RG")
+seurat3 = FindVariableFeatures(seurat3, nfeatures = 15000)
+form <- ~ (1|donor) + (1|Genotype) + (1|Batch)
+varPart <- fitExtractVarPartModel(as.matrix(seurat3@assays$RNA@data[intersect(VariableFeatures(seurat3), vp_genes),]), form, seurat3@meta.data)
+
+vp = varPart[order(varPart$Genotype, decreasing = T),]
+
+write.csv(vp, file = "multiome_rg_vp.csv", quote = F)
+
+plotPercentBars( vp[1:80,] )
+plotVarPart( vp )
+
+saveRDS(seurat2, file="/media/chang/HDD-1/chang/multiome_rna_subset.rds")
+
+```

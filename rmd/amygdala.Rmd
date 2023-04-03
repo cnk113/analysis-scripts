@@ -1,0 +1,37 @@
+---
+title: "amygdala"
+output: html_notebook
+---
+
+```{r}
+library(Seurat)
+
+bl = readRDS("/media/chang/HDD-10/chang/amy/bl.rds")
+bl$Area = "BLN_BN"
+blm_bm = readRDS("/media/chang/HDD-10/chang/amy/blm_bm.rds")
+blm_bm$Area = "BLN_BM"
+blm_la = readRDS("/media/chang/HDD-10/chang/amy/blm_la.rds")
+blm_la$Area = "BLN_LA"
+bnst = readRDS("/media/chang/HDD-10/chang/amy/bnst.rds")
+bnst$Area = "BNST"
+cen = readRDS("/media/chang/HDD-10/chang/amy/cen.rds")
+cen$Area = "CEN"
+cmn_coa = readRDS("/media/chang/HDD-10/chang/amy/cmn_coa.rds")
+cmn_coa$Area = "CMN_CoA"
+cmn = readRDS("/media/chang/HDD-10/chang/amy/corticomedial_nuclear.rds")
+cmn$Area = "CMN"
+
+amy = merge(bl, c(blm_bm, blm_la, bnst, cen, cmn_coa, cmn))
+saveRDS(amy,file="/media/chang/HDD-10/chang/amy/amy.rds")
+```
+
+
+```{r}
+
+
+
+
+
+```
+
+

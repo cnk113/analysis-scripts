@@ -1,0 +1,126 @@
+---
+title: "vasc_organoid"
+output: html_notebook
+---
+
+
+
+```{r}
+library(Seurat)
+library(FastCAR)
+library(scds)
+library(SCPA)
+library(dittoSeq)
+
+ReadSTAR <- function(data.dir, vireo, proj = "SeuratObject", feats = 500, ratio=.1,
+                     counts = 1000, sample="Sample", doublet=TRUE) {
+  raw = Read10X(data.dir = data.dir)
+  seurat = CreateSeuratObject(raw, project=proj, min.features = feats)
+
+  ambProfile = describe.ambient.RNA.sequence(fullMatrix = raw, 
+                                             start = 10, 
+                                             stop = 200, 
+                                             by = 10, 
+                                             contaminationChanceCutoff = 0.05)
+  emptyDropletCutoff = recommend.empty.cutoff(ambProfile)
+  ambientProfile = determine.background.to.remove(raw, emptyDropletCutoff, .05)
+  
+  cb = read.csv(vireo, sep = '\t')
+  seurat = subset(seurat, cells=intersect(cb$cell, colnames(seurat)))
+  seurat[['cleaned']] = CreateAssayObject(remove.background(seurat@assays$RNA@counts, ambientProfile))
+  seurat@meta.data = cbind(seurat@meta.data, cb)
+  
+  sce = cxds_bcds_hybrid(SingleCellExperiment(list(counts=seurat@assays$cleaned@counts)))
+  seurat$hybrid_score = sce$hybrid_score
+
+  seurat[['percent.mt']] = PercentageFeatureSet(seurat, pattern = "MT-",assay = 'cleaned')
+  
+  if(doublet == TRUE){
+    n_cells = dim(seurat)[2]
+    if (n_cells >= 15000){
+      seurat = subset(seurat, subset=percent.mt <= 20 & hybrid_score < 1)
+    } else if(n_cells >= 10000){
+      seurat = subset(seurat, subset=percent.mt <= 20 & hybrid_score < 1.25)
+    } else if(n_cells >= 5000){
+      seurat = subset(seurat, subset=percent.mt <= 20 & hybrid_score < 1.5)
+    } else if(n_cells < 5000){
+      seurat = subset(seurat, subset=percent.mt <= 20 & hybrid_score < 1.75)
+    }
+  } else{
+    seurat = subset(seurat, subset=percent.mt <= 20)
+  }
+  seurat$Sample = sample
+  return(seurat)
+}
+```
+
+```{r}
+control = CreateSeuratObject(Read10X("/media/chang/HDD-8/jayden/JRTJN01/control_cr/outs/filtered_feature_bc_matrix/"))
+cb = read.csv("/media/chang/HDD-8/chang/vireo/control_1k_vireo/donor_ids.tsv", sep = '\t')
+control@meta.data = cbind(control@meta.data, cb)
+control$orig.ident = "Control"
+control = subset(control, subset=donor_id %in% c("donor0", "donor1", "donor2"))
+
+vasc = CreateSeuratObject(Read10X("/media/chang/HDD-8/jayden/JRTJN01/vasc_cr/outs/filtered_feature_bc_matrix/"))
+cb = read.csv("/media/chang/HDD-8/chang/vireo/vasc_1k_vireo/donor_ids.tsv", sep='\t')
+vasc@meta.data = cbind(vasc@meta.data, cb)
+vasc$orig.ident = "Vasc"
+vasc = subset(vasc, subset=donor_id %in% c("donor0", "donor1", "donor2", "unassigned"))
+
+cortical_vasc = CreateSeuratObject(Read10X("/media/chang/HDD-8/jayden/JRTJN01/cortical_vasc_cr/outs/filtered_feature_bc_matrix/"))
+cb = read.csv("/media/chang/HDD-8/chang/vireo/cortical_vasc_1k_vireo/donor_ids.tsv", sep='\t')
+cortical_vasc@meta.data = cbind(cortical_vasc@meta.data, cb)
+cortical_vasc$orig.ident = "Cortical_vasc"
+cortical_vasc = subset(cortical_vasc, subset=donor_id %in% c("donor0", "donor1", "donor2"))
+
+
+merged = merge(control, c(vasc, cortical_vasc))
+merged[["percent.mt"]] <- PercentageFeatureSet(merged, pattern = "^MT-", assay = "RNA")
+```
+
+```{r}
+merged = subset(merged, subset=percent.mt < 15)
+merged = SCTransform(merged, vst.flavor='v2')
+merged = RunPCA(merged)
+merged = RunUMAP(merged, dims=1:20)
+merged = FindNeighbors(merged, dims=1:20)
+merged = FindClusters(merged, algorithm = 2, resolution = .6)
+
+DimPlot(merged, group.by = c("orig.ident", "donor_id")) & NoAxes()
+
+FeaturePlot(merged, features = c("CLDN5","ACTA2","DCN","LUM","HIGD1B","CNN1","HOPX","LIFR","LIF"), order=T, max.cutoff = 'q99', ncol = 3) & NoAxes() & scale_color_viridis_c()
+
+FeaturePlot(merged, features = c("GLI3","EOMES","NEUROD2","MKI67","DLX2","CRYAB","OLIG1","HOPX","PTPRZ1"), order=T, max.cutoff = 'q99', ncol = 3) & NoAxes() & scale_color_viridis_c()
+
+DimPlot(merged, label=T, cols = dittoColors()) + NoAxes() + dittoBarPlot(merged, group.by = 'ident', var = 'orig.ident')
+
+DefaultAssay(merged) = "RNA"
+merged = NormalizeData(merged)
+test = FindMarkers(merged, group.by = "orig.ident", ident.1 = "Cortical_vasc", 
+                   ident.2 = "Control", max.cells.per.ident = 8000)
+test = test[!grepl("RPS", rownames(test)),]
+test = test[!grepl("RPL", rownames(test)),]
+test = test[!grepl("ATP5", rownames(test)),]
+test = test[!grepl("MT-", rownames(test)),]
+
+test = FindMarkers(merged, group.by = "orig.ident", subset.ident = 5,
+                   ident.1 = "Cortical_vasc",ident.2 = "Control",
+                   max.cells.per.ident = 600)
+test = test[!grepl("RPS", rownames(test)),]
+test = test[!grepl("RPL", rownames(test)),]
+test = test[!grepl("ATP5", rownames(test)),]
+test = test[!grepl("MT-", rownames(test)),]
+
+test = FindMarkers(merged, group.by = "orig.ident", subset.ident = 11,
+                   ident.1 = "Cortical_vasc",ident.2 = "Control",
+                   max.cells.per.ident = 400)
+test = test[!grepl("RPS", rownames(test)),]
+test = test[!grepl("RPL", rownames(test)),]
+test = test[!grepl("ATP5", rownames(test)),]
+test = test[!grepl("MT-", rownames(test)),]
+
+
+SCpubr::do_VolcanoPlot(sample = merged, n_genes = 20,plot.title ="Cortical_vasc vs. Control",
+                            de_genes = test)
+```
+

@@ -1,0 +1,176 @@
+---
+title: "midbrain"
+output: html_notebook
+---
+
+
+```{r}
+library(Seurat)
+library(dittoSeq)
+library(harmony)
+library(SeuratWrappers)
+library(scCustomize)
+library(scds)
+library(presto)
+library(viridis)
+library(stringr)
+library(FastCAR)
+library(Matrix)
+library(DropletQC)
+library(SingleCellExperiment)
+
+ReadSTAR <- function(data.dir, proj = "SeuratObject", feats = 500, ratio=.1,
+                     counts = 1000, sample="Sample", doublet=TRUE) {
+  data.dir.genefull = paste0(data.dir, "GeneFull_Ex50pAS/raw")
+  mtx = file.path(data.dir.genefull, "UniqueAndMult-EM.mtx")
+  cells = file.path(data.dir.genefull, "barcodes.tsv")
+  features = file.path(data.dir.genefull, "features.tsv")
+  raw = ReadMtx(mtx = mtx, cells = cells, features = features)
+  
+  seurat = CreateSeuratObject(raw, project=proj, min.features = feats)
+  
+  data.dir.velo = paste0(data.dir, "/Velocyto/raw")
+  cells = file.path(data.dir.velo, "barcodes.tsv")
+  features = file.path(data.dir.velo, "features.tsv")
+  spliced = file.path(data.dir.velo, "spliced.mtx")
+  unspliced = file.path(data.dir.velo, "unspliced.mtx")
+  ambi = file.path(data.dir.velo, "ambiguous.mtx")
+  spliced = ReadMtx(mtx = spliced, cells = cells, features = features)
+  unspliced = ReadMtx(mtx = unspliced, cells = cells, features = features)
+  ambi = ReadMtx(mtx = ambi, cells = cells, features = features)
+  spliced = spliced + ambi
+
+  seurat[['unspliced']] = CreateAssayObject(unspliced[,colnames(seurat)])
+  seurat[['spliced']] = CreateAssayObject(spliced[,colnames(seurat)])
+  seurat$droplet_qc_ratio = seurat$nCount_unspliced / seurat$nCount_RNA
+
+  md = seurat@meta.data[,c("droplet_qc_ratio","nCount_RNA" )]
+  md$nCount_RNA = as.integer(md$nCount_RNA)
+  
+  calls = identify_empty_drops(md, nf_rescue = ratio, umi_rescue=counts)
+  seurat$cell_status = calls$cell_status
+
+  seurat = subset(seurat, subset=cell_status == "cell")
+
+  ambProfile = describe.ambient.RNA.sequence(fullMatrix = raw, 
+                                             start = 10, 
+                                             stop = 200, 
+                                             by = 10, 
+                                             contaminationChanceCutoff = 0.05)
+  emptyDropletCutoff = recommend.empty.cutoff(ambProfile)
+  ambientProfile = determine.background.to.remove(raw, emptyDropletCutoff, .05)
+  seurat[['cleaned']] = CreateAssayObject(remove.background(seurat@assays$RNA@counts, ambientProfile))
+  
+  sce = cxds_bcds_hybrid(SingleCellExperiment(list(counts=seurat@assays$cleaned@counts)))
+  seurat$hybrid_score = sce$hybrid_score
+
+  seurat[['percent.mt']] = PercentageFeatureSet(seurat, pattern = "MT-",assay = 'cleaned')
+  
+  if(doublet == TRUE){
+    n_cells = dim(seurat)[2]
+    if (n_cells >= 15000){
+      seurat = subset(seurat, subset=percent.mt <= 20 & hybrid_score < 1)
+    } else if(n_cells >= 10000){
+      seurat = subset(seurat, subset=percent.mt <= 20 & hybrid_score < 1.25)
+    } else if(n_cells >= 5000){
+      seurat = subset(seurat, subset=percent.mt <= 20 & hybrid_score < 1.5)
+    } else if(n_cells < 5000){
+      seurat = subset(seurat, subset=percent.mt <= 20 & hybrid_score < 1.75)
+    }
+  } else{
+    seurat = subset(seurat, subset=percent.mt <= 20)
+  }
+  seurat$Sample = sample
+  return(seurat)
+}
+```
+
+```{r}
+dirs = '/media/chang/HDD-5/chang/devel/midbrain_hindbrain_brainstem/brainstem/GW15_brainstem/MR_17wkS1_MissingLibrary_1_HWKC3BBXX/GW15_brainstem_Solo.out/'
+seurat = ReadSTAR(dirs, proj = "GW15_brainstem", sample = "GW15_brainstem")
+
+dirs = '/media/chang/HDD-5/chang/devel/midbrain_hindbrain_brainstem/brainstem/GW17_brainstem/MR-sample1-19wk-fetalBS_singlecell_cellranger_v1p3p1_refdata-cellranger-hg19-1_2_0_MissingLibrary_1_HKG3LBBXX/GW17_brainstem_Solo.out/'
+seurat2 = ReadSTAR(dirs, proj = "GW17_brainstem", sample = "GW17_brainstem")
+
+dirs = '/media/chang/HDD-5/chang/devel/midbrain_hindbrain_brainstem/MSAP08/GW23_Mesencephalon_1/GW23_Mesencephalon_1_Solo.out/'
+seurat3 = ReadSTAR(dirs, proj = "GW23_midbrain1", sample = "GW23")
+
+dirs = '/media/chang/HDD-5/chang/devel/midbrain_hindbrain_brainstem/MSAP08/GW23_Mesencephalon_2/GW23_Mesencephalon_2_Solo.out/'
+seurat4 = ReadSTAR(dirs, proj = "GW23_midbrain2", sample = "GW23")
+
+dirs = '/media/chang/HDD-5/chang/devel/midbrain_hindbrain_brainstem/MSAP08/GW23_Rhombencephalon_1/GW23_Rhombencephalon_1_Solo.out/'
+seurat5 = ReadSTAR(dirs, proj = "GW23_hindbrain1", sample = "GW23")
+
+dirs = '/media/chang/HDD-5/chang/devel/midbrain_hindbrain_brainstem/MSAP08/GW23_Rhombencephalon_2/GW23_Rhombencephalon_2_Solo.out/'
+seurat6 = ReadSTAR(dirs, proj = "GW23_hindbrain2", sample = "GW23")
+
+dirs = '/media/chang/HDD-5/chang/devel/midbrain_hindbrain_brainstem/GW25_midbrain/GW25_midbrain_Solo.out/'
+seurat7 = ReadSTAR(dirs, proj = "GW25_midbrain", sample = "GW25")
+
+merged = merge(seurat, c(seurat2, seurat3, seurat4, seurat5, seurat6, seurat7))
+
+merged$Area = "Midbrain"
+merged$Area[grepl("brainstem", merged$orig.ident)] = "Brainstem"
+merged$Area[grepl("hindbrain", merged$orig.ident)] = "Hindbrain"
+merged$Age = "GW23"
+merged$Age[grepl("GW25", merged$orig.ident)] = "GW25"
+merged$Age[grepl("GW15", merged$orig.ident)] = "GW15"
+merged$Age[grepl("GW17", merged$orig.ident)] = "GW17"
+
+saveRDS(merged, file="/media/chang/HDD-5/chang/devel/midbrain_hindbrain_brainstem/merged.rds")
+
+
+dirs = "/media/chang/HDD-5/chang/devel/midbrain_hindbrain_brainstem/CS13/central/CS13_central_midbrain_Solo.out/"
+seurat8 = ReadSTAR(dirs, proj = "CS13_central_midbrain", sample = "CS13")
+
+dirs = "/media/chang/HDD-5/chang/devel/midbrain_hindbrain_brainstem/CS13/anterior/CS13_anterior_midbrain_Solo.out/"
+seurat9 = ReadSTAR(dirs, proj = "CS13_anterior_midbrain", sample = "CS13")
+
+dirs = "/media/chang/HDD-5/chang/devel/midbrain_hindbrain_brainstem/CS13/hindbrain/CS13_hindbrain_Solo.out/"
+seurat10 = ReadSTAR(dirs, proj = "CS13_hindbrain", sample = "CS13")
+
+merged2 = merge(seurat8, c(seurat9, seurat10))
+saveRDS(merged2, file="/media/chang/HDD-5/chang/devel/midbrain_hindbrain_brainstem/merged_cs.rds")
+```
+
+```{r}
+merged = SCTransform(merged, vst.flavor='v2', assay='cleaned', ncells = NULL, 
+                     n_genes=NULL, variable.features.n = 2000)
+
+VariableFeatures(merged) = VariableFeatures(merged)[!grepl("MT-", VariableFeatures(merged))]
+VariableFeatures(merged) = VariableFeatures(merged)[!grepl("MALAT1", VariableFeatures(merged))]
+VariableFeatures(merged) = VariableFeatures(merged)[!grepl("RPS", VariableFeatures(merged))]
+VariableFeatures(merged) = VariableFeatures(merged)[!grepl("RPL", VariableFeatures(merged))]
+
+DimPlot(merged, cols = dittoColors(), label=T, pt.size = 1) + NoAxes()
+
+VariableFeaturePlot_scCustom(merged, num_features = 2000) & ylim(0,3)
+
+merged = RunPCA(merged, npcs=20)
+merged = RunHarmony(merged, group.by.vars='Sample', assay.use = "SCT")
+merged = RunUMAP(merged, dims=1:20, reduction='harmony')
+merged = FindNeighbors(merged, dims=1:20, reduction='harmony')
+
+merged = FindClusters(merged, algorithm = 2, resolution = 1)
+
+
+merged2 = SCTransform(merged2, vst.flavor='v2', assay='cleaned', ncells = NULL, 
+                     n_genes=NULL, variable.features.n = 2000)
+
+VariableFeatures(merged2) = VariableFeatures(merged2)[!grepl("MT-", VariableFeatures(merged))]
+VariableFeatures(merged2) = VariableFeatures(merged2)[!grepl("MALAT1", VariableFeatures(merged))]
+VariableFeatures(merged2) = VariableFeatures(merged2)[!grepl("RPS", VariableFeatures(merged))]
+VariableFeatures(merged2) = VariableFeatures(merged2)[!grepl("RPL", VariableFeatures(merged))]
+
+merged2 = RunPCA(merged2)
+merged2 = RunUMAP(merged2, dims=1:20)
+merged2 = FindNeighbors(merged2, dims=1:20)
+DimPlot(merged2, cols = dittoColors(), label=T, pt.size = 1) + NoAxes()
+
+VariableFeaturePlot_scCustom(merged2, num_features = 2000) & ylim(0,3)
+
+merged2 = FindClusters(merged2, algorithm = 2, resolution = 1)
+
+```
+
+

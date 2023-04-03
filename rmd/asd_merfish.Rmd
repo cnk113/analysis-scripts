@@ -1,0 +1,39 @@
+---
+title: "ASD merfish"
+output: html_notebook
+---
+
+```{r}
+asd = LoadVizgen("/media/chang/HDD-4/chang/asd_merfish/output/202301151221_ABN-VMGD-panelv194-011523_VMSC01801/region_0/", fov = "Cortex")
+saveRDS(asd, file="/media/chang/HDD-4/chang/asd_merfish/output/asd.rds")
+ctrl = LoadVizgen("/media/chang/HDD-4/chang/asd_merfish/output/202301181236_ABN-YHWZ-011823-v194_VMSC01801/region_0/",fov = "Cortex")
+saveRDS(ctrl, file="/media/chang/HDD-4/chang/asd_merfish/output/ctrl.rds")
+
+asd = subset(asd, subset=nCount_Vizgen >= 10)
+ctrl = subset(ctrl, subset=nCount_Vizgen >= 10)
+
+asd = SCTransform(asd, vst.flavor='v2', assay = 'Vizgen')
+ctrl = SCTransform(ctrl, vst.flavor='v2', assay='Vizgen')
+
+asd = RunPCA(asd)
+ctrl = RunPCA(ctrl)
+
+asd = FindNeighbors(asd, dims=1:20)
+ctrl = FindNeighbors(ctrl, dims=1:20)
+
+asd = RunUMAP(asd, dims=1:20)
+ctrl = RunUMAP(ctrl, dims=1:20)
+
+asd = FindClusters(asd, algorithm=2, resolution=.4)
+ctrl = FindClusters(ctrl, algorithm=2, resolution=.4)
+
+ImageDimPlot(ctrl, cols = dittoColors()) + DimPlot_scCustom(ctrl, label=T, colors_use = dittoColors()) + NoAxes()
+
+ctrl.markers = FindAllMarkers(ctrl)
+top5_markers <- Extract_Top_Markers(marker_dataframe = ctrl.markers, num_genes = 5, named_vector = FALSE,
+    make_unique = TRUE)
+Clustered_DotPlot(seurat_object = ctrl, features = top5_markers)
+
+VlnPlot(asd, features = 'nFeature_Vizgen')
+VlnPlot(ctrl, features = 'nFeature_Vizgen')
+```
