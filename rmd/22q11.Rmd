@@ -17,7 +17,14 @@ library(FastCAR)
 library(Matrix)
 library(DropletQC)
 library(SingleCellExperiment)
-library(lemur)
+library(dreamlet)
+library(plot1cell)
+library(igraph)
+library(JASPAR2022)
+library(motifmatchr)
+library(TFBSTools)
+library(EnsDb.Hsapiens.v86)
+library(GenomicRanges)
 
 ReadSTAR <- function(data.dir, vireo,  proj = "SeuratObject", feats = 1000, 
                      ratio=.1, counts = 1000, sample="Sample") {
@@ -233,35 +240,713 @@ merged$Condition[grepl("540135", merged$donor_id)] = "22Q"
 merged$Condition[grepl("35773", merged$donor_id)] = "22Q"
 merged$Condition[grepl("AB2", merged$donor_id)] = "22Q"
 
-merged$Condition[grepl("X", merged$donor_id)] = "UNK"
-merged$Condition[grepl("Y", merged$donor_id)] = "UNK"
-merged$Condition[grepl("Z", merged$donor_id)] = "UNK"
+merged$donor_id[grepl("Y", merged$donor_id)] = "29098A"
+merged$Condition[grepl("29098A", merged$donor_id)] = "CTRL"
+merged$donor_id[grepl("Z", merged$donor_id)] = "721532"
+merged$Condition[grepl("721532", merged$donor_id)] = "22Q"
+merged$donor_id[grepl("X", merged$donor_id)] = "20961B"
+merged$Condition[grepl("20961B", merged$donor_id)] = "CTRL"
 
-
-merged = RunHarmony(merged, group.by.vars = "Batch", kmeans_init_nstart=20,
-                    kmeans_init_iter_max=100, assay.use = "SCT",plot_convergence = T)
+merged = RunHarmony(merged, group.by.vars = "Batch", kmeans_init_nstart=100, kmeans_init_iter_max=10000, assay.use = "SCT", plot_convergence = T, theta=0)
 merged = RunUMAP(merged, dims=1:30, reduction = 'harmony')
 merged = FindNeighbors(merged, dims=1:30, reduction = 'harmony')
-merged = FindClusters(merged, algorithm=2, resolution=.1)
+merged = FindClusters(merged, algorithm=2, resolution=.2)
+merged = FindClusters(merged, algorithm=2, resolution=.3)
+merged = FindClusters(merged, algorithm=2, resolution=.4)
+merged = FindClusters(merged, algorithm=2, resolution=.5)
 
 saveRDS(merged, file='/media/chang/HDD-3/chang/david/merged_proc.rds')
 
 DimPlot(merged, group.by = c("donor_id",'orig.ident','Batch',"Condition"), 
         cols = dittoColors()) & NoAxes()
 
+DimPlot(merged, group.by = c("SCT_snn_res.0.2",'SCT_snn_res.0.3',
+                             "SCT_snn_res.0.4","SCT_snn_res.0.5"), 
+        cols = dittoColors()) & NoAxes()
+
 FeaturePlot(merged ,features = c("FOXG1","TCF7L2","SOX2","POU4F1","GBX2",
-                                 "DLX2","FOXP2","EN1","LHX1"),
+                                 "CRABP1","FOXP2","EN1","LHX1"),
             ncol = 3, order=T, max.cutoff = 'q99') & NoAxes()
+
+SCpubr::do_CorrelationPlot(sample = merged,group.by = "SCT_snn_res.0.5" ,
+                           cell_size = 10)
+
+markers = wilcoxauc(merged, seurat_assay = "SCT")
+
+merged$clusters = as.character(merged$SCT_snn_res.0.5)
+merged$clusters[merged$clusters == 10] = "CP1"
+merged$clusters[merged$clusters == 22] = "FB2"
+merged$clusters[merged$clusters == 4] = "Cor_EN"
+merged$clusters[merged$clusters == 21] = "Cor_dlEN"
+merged$clusters[merged$clusters == 15] = "Cor_RG"
+merged$clusters[merged$clusters == 17] = "Cor_Div"
+merged$clusters[merged$clusters == 7] = "Thal_EN1"
+merged$clusters[merged$clusters == 14] = "Thal_IPC"
+merged$clusters[merged$clusters == 3] = "Thal_EN2"
+merged$clusters[merged$clusters == 0] = "Thal_IN1"
+merged$clusters[merged$clusters == 6] = "Thal_IN2"
+merged$clusters[merged$clusters == 19] = "Thal_IN3"
+merged$clusters[merged$clusters == 9] = "Thal_Div"
+merged$clusters[merged$clusters == 20] = "FB1"
+merged$clusters[merged$clusters == 11] = "AC1"
+merged$clusters[merged$clusters == 8] = "AC2"
+merged$clusters[merged$clusters == 1] = "Thal_GL1"
+merged$clusters[merged$clusters == 16] = "Thal_GL1"
+merged$clusters[merged$clusters == 18] = "Thal_GL1"
+merged$clusters[merged$clusters == 2] = "Thal_GL2"
+merged$clusters[merged$clusters == 5] = "Thal_GL3"
+merged$clusters[merged$clusters == 13] = "Thal_GL3"
+merged$clusters[merged$clusters == 12] = "CP2"
+
+Idents(merged) = merged$clusters
+
+DimPlot(merged, label = T, group.by = 'clusters', cols = dittoColors())
 ```
 
 ```{r}
-sce = as.SingleCellExperiment(merged, assay = 'SCT')
-fit <- lemur(sce, design = ~ donor_id + Condition, n_embedding = 20, verbose = FALSE)
+table(merged$donor_id, merged$Batch)
+merged = readRDS("/media/chang/HDD-3/chang/david/merged_proc.rds")
 
-# We can regularize the alignment either using ridge regression
-# or by allowing only rotations or stretching
-fit <- align_harmony(fit, stretching = FALSE)
+cortex = subset(merged, subset=Batch %in% c("org1_2", "org3", "Thal"))
+cortex$orig.ident = paste0(cortex$Batch, "_", cortex$donor_id)
+
+cortex = subset(cortex, subset=orig.ident %in% c(names(table(cortex$orig.ident)[1:9]), 
+                                                 "Thal_29098A","Thal_WTC11","Thal_AB2"))
+thal3 = subset(cortex, subset=orig.ident=="Thal_13234")
+cortex = subset(cortex, subset=orig.ident != "Thal_13234")
+saveRDS(cortex, file='/media/chang/HDD-3/chang/david/merged_cortex.rds')
+
+
+thal = subset(merged, subset=Batch %in% c("Lane1_3", "Lane4_7","org","org_apr"))
+thal2 = subset(cortex, subset=orig.ident %in% c("Thal_6OC2", "Thal_540135", "Thal_35773",
+                                                 "Thal_721532","Thal_13234"))
+thal = merge(thal, thal2, thal3)
+saveRDS(thal, file='/media/chang/HDD-3/chang/david/merged_thal.rds')
+```
+
+```{r}
+cortex = readRDS('/media/chang/HDD-3/chang/david/merged_cortex.rds')
+cortex = SCTransform(cortex, vst.flavor='v2', assay = "cleaned")
+VariableFeatures(cortex) = VariableFeatures(cortex)[!grepl("MT-", VariableFeatures(cortex))]
+VariableFeatures(cortex) = VariableFeatures(cortex)[!grepl("MALAT1", VariableFeatures(cortex))]
+VariableFeatures(cortex) = VariableFeatures(cortex)[!grepl("RPS", VariableFeatures(cortex))]
+VariableFeatures(cortex) = VariableFeatures(cortex)[!grepl("RPL", VariableFeatures(cortex))]
+cortex = RunPCA(cortex, npcs = 20)
+
+saveRDS(cortex, file='/media/chang/HDD-3/chang/david/merged_cortex.rds')
+
+DimPlot(cortex, group.by = c("donor_id","Batch"), cols=dittoColors()) & NoAxes()
+
+cortex = RunUMAP(cortex, dims=1:20)
+cortex = FindNeighbors(cortex, dims=1:20)
+
+cortex = FindClusters(cortex, algorithm = 2, resolution = .3)
+
+thal2 = subset(cortex, subset=SCT_snn_res.0.3 %in% c(0,1,4,6,10,13))
+saveRDS(thal2, 
+        file='/media/chang/HDD-3/chang/david/thal_from_cortical_org1_2_3_latest.rds')
+cortex = subset(cortex, subset=SCT_snn_res.0.3 %in% c(2,3,5,7,8,9,11,12))
+
+DimPlot(cortex, group.by = c("SCT_snn_res.0.4","Batch"), cols=dittoColors()) & NoAxes()
+FeaturePlot(cortex ,features = c("FOXG1","TCF7L2","TTR","SOX2","MKI67","EOMES"),ncol = 3, order=T, max.cutoff = 'q99') & NoAxes()
+
+cortex = SCTransform(cortex, vst.flavor='v2', assay = "cleaned")
+VariableFeatures(cortex) = VariableFeatures(cortex)[!grepl("MT-", VariableFeatures(cortex))]
+VariableFeatures(cortex) = VariableFeatures(cortex)[!grepl("MALAT1", VariableFeatures(cortex))]
+VariableFeatures(cortex) = VariableFeatures(cortex)[!grepl("RPS", VariableFeatures(cortex))]
+VariableFeatures(cortex) = VariableFeatures(cortex)[!grepl("RPL", VariableFeatures(cortex))]
+cortex = RunPCA(cortex, npcs = 20)
+cortex = RunHarmony(cortex, group.by.vars = 'Batch', assay.use = "SCT", 
+                    theta = 1, plot_convergence = T)
+cortex = RunUMAP(cortex, dims=1:20, reduction='harmony')
+cortex = FindNeighbors(cortex, dims=1:20, reduction='harmony')
+saveRDS(cortex, 
+        file='/media/chang/HDD-3/chang/david/merged_cortex_filtered.rds')
+
+FeaturePlot(cortex, features = c("FOXG1","AQP4","NEUROD6","SOX2","MKI67","EOMES","HOPX","FEZF2","SATB2",
+                                 "CRYM","OPCML","NRP1"),
+            ncol = 4, order=T, max.cutoff = 'q99') & NoAxes()
+
+cortex = FindClusters(cortex, algorithm = 2, resolution = .3)
+
+cortex.markers = FindAllMarkers(cortex, only.pos = T)
+saveRDS(cortex.markers, file="/media/chang/HDD-3/chang/david/cortex_markers.rds")
+cortex.markers %>%
+    group_by(cluster) %>%
+    top_n(n = 5, wt = avg_log2FC) -> top10
+DoHeatmap(cortex, features = top10$gene) + NoLegend()
+
+cortex$clusters = as.character(cortex$SCT_snn_res.0.3)
+cortex$clusters[cortex$clusters == "0"] = "RG"
+cortex$clusters[cortex$clusters == "7"] = "Div"
+cortex$clusters[cortex$clusters == "8"] = "Div"
+cortex$clusters[cortex$clusters == "5"] = "IPC"
+cortex$clusters[cortex$clusters == "3"] = "ulEN"
+cortex$clusters[cortex$clusters == "4"] = "dlEN"
+cortex$clusters[cortex$clusters == "1"] = "EN"
+cortex$clusters[cortex$clusters == "2"] = "nEN1"
+cortex$clusters[cortex$clusters == "6"] = "nEN2"
+
+Idents(cortex) = cortex$clusters
+saveRDS(cortex, 
+        file='/media/chang/HDD-3/chang/david/merged_cortex_filtered.rds')
+DimPlot(cortex, group.by = 'clusters', label=T, cols=dittoColors())
 
 
 
+
+thal = readRDS('/media/chang/HDD-3/chang/david/merged_thal.rds')
+thal = SCTransform(thal, vst.flavor='v2', assay = "cleaned")
+VariableFeatures(thal) = VariableFeatures(thal)[!grepl("MT-", VariableFeatures(thal))]
+VariableFeatures(thal) = VariableFeatures(thal)[!grepl("MALAT1", VariableFeatures(thal))]
+VariableFeatures(thal) = VariableFeatures(thal)[!grepl("RPS", VariableFeatures(thal))]
+VariableFeatures(thal) = VariableFeatures(thal)[!grepl("RPL", VariableFeatures(thal))]
+thal = RunPCA(thal, npcs = 30)
+thal = RunHarmony(thal, group.by.vars = 'Batch', assay.use = "SCT", 
+                    theta = 1, plot_convergence = T)
+thal = RunUMAP(thal, dims=1:30, reduction = 'harmony')
+thal = FindNeighbors(thal, dims=1:30, reduction = 'harmony')
+saveRDS(thal, file='/media/chang/HDD-3/chang/david/merged_thal.rds')
+
+thal = FindClusters(thal, algorithm = 2, resolution = .5)
+
+thal$clusters = as.character(thal$SCT_snn_res.0.5)
+
+thal$clusters[thal$clusters == 6] = "Div"
+thal$clusters[thal$clusters == 23] = "Div"
+thal$clusters[thal$clusters == 10] = "CP1"
+thal$clusters[thal$clusters == 24] = "CP2"
+thal$clusters[thal$clusters == 12] = "CP3"
+
+thal$clusters[thal$clusters == 9] = "EN1"
+thal$clusters[thal$clusters == 2] = "EN2"
+thal$clusters[thal$clusters == 0] = "IN1"
+thal$clusters[thal$clusters == 25] = "IN1"
+thal$clusters[thal$clusters == 4] = "IN2"
+thal$clusters[thal$clusters == 13] = "IN3"
+thal$clusters[thal$clusters == 22] = "IN4"
+
+thal$clusters[thal$clusters == 14] = "IPC1"
+thal$clusters[thal$clusters == 26] = "IPC2"
+
+thal$clusters[thal$clusters == 20] = "CTX"
+thal$clusters[thal$clusters == 15] = "CTX"
+
+thal$clusters[thal$clusters == 7] = "GL1"
+thal$clusters[thal$clusters == 8] = "GL2"
+thal$clusters[thal$clusters == 17] = "GL2"
+thal$clusters[thal$clusters == 11] = "AC"
+thal$clusters[thal$clusters == 1] = "GL3"
+thal$clusters[thal$clusters == 3] = "GL4"
+
+thal$clusters[thal$clusters == 5] = "GL5"
+thal$clusters[thal$clusters == 16] = "GL5"
+
+thal$clusters[thal$clusters == 19] = "FB"
+thal$clusters[thal$clusters == 21] = "UNK"
+thal$clusters[thal$clusters == 18] = "LQ"
+
+Idents(thal) = thal$clusters
+
+thal = subset(thal, subset=clusters %in% c("Div", "GL1","GL2","UNK","IN1",
+                                        "IN2","AC","FB","LQ","IPC1","IPC2","EN1",
+                                        "EN2","IN3","IN4","GL3","GL4","GL5","LQ"));gc();
+
+thal = subset(thal, subset=donor_id %in% c("13234", "28126","35773","540135",
+                                           "6OC2", "721532"));gc();
+
+thal = SCTransform(thal, vst.flavor='v2', assay = "cleaned")
+VariableFeatures(thal) = VariableFeatures(thal)[!grepl("MT-", VariableFeatures(thal))]
+VariableFeatures(thal) = VariableFeatures(thal)[!grepl("MALAT1", VariableFeatures(thal))]
+VariableFeatures(thal) = VariableFeatures(thal)[!grepl("RPS", VariableFeatures(thal))]
+VariableFeatures(thal) = VariableFeatures(thal)[!grepl("RPL", VariableFeatures(thal))]
+thal = RunPCA(thal, npcs = 30)
+thal = RunHarmony(thal, group.by.vars = 'Batch', assay.use = "SCT", 
+                    theta = 1, plot_convergence = T)
+thal = RunUMAP(thal, dims=1:30, reduction = 'harmony')
+thal = FindNeighbors(thal, dims=1:30, reduction = 'harmony')
+
+saveRDS(thal,file="/media/chang/HDD-3/chang/david/merged_thal_filtered_cp.rds")
+
+
+SCpubr::do_CorrelationPlot(sample = thal,group.by = "clusters" ,
+                           cell_size = 10)
+
+FeaturePlot(thal ,features = c("FOXG1","TCF7L2","EYA2","SOX2","MKI67","GAD1", "PAX6",
+                               "LHX1","RNF220","GAD1","CRABP1","PAX3","EN1"),
+            ncol = 4, order=T, max.cutoff = 'q99') & NoAxes()
+
+FeaturePlot(thal ,features = c("AQP4","DCN","EYA2","FOXG1","HOPX","SPARCL1",
+                               "OLIG1","PCDH15","LUM"),ncol = 3, 
+            order=T, max.cutoff = 'q99') & NoAxes()
+
+DimPlot(thal, group.by = c("donor_id","Batch"), cols=dittoColors()) & NoAxes()
+DimPlot(thal, group.by = c("clusters"),
+        label=T, cols=dittoColors()) & NoAxes()
+
+dittoBarPlot(thal, var='Condition', group.by = 'clusters') + dittoBarPlot(thal, var='donor_id', group.by = 'clusters')
+
+
+second = readRDS("/media/chang/HDD-7/chang/aparna/second.rds")
+
+anchors <- FindTransferAnchors(
+  reference = second,
+  query = thal,
+  recompute.residuals = T,
+  normalization.method = "SCT",  ## SCT
+  query.assay = 'SCT', ##
+  reference.reduction = "harmony",
+  reference.assay = "SCT", ## SCT
+  features = VariableFeatures(second),
+  dims = 1:30
+)
+second = RunHarmony(second, group.by.vars=c("Sample"), assay.use="SCT",
+                    kmeans_init_nstart=20, kmeans_init_iter_max=100)
+second <- RunUMAP(second, dims = 1:30, 
+                  reduction = "harmony", 
+                  return.model = TRUE)
+
+second$class = second$clusters
+second$class[grepl ("EN", second$class)] = 'Glut'
+second$class[grepl ("IN", second$class)] = 'Gaba'
+second$class[grepl ("GL", second$class)] = 'GL'
+
+thal <- MapQuery(anchorset = anchors,
+  query = thal,
+  reference = second,
+  refdata = list(celltype.l1 = "class",
+    celltype.l2 = "clusters"),
+  reference.reduction = "harmony",
+  reduction.model = "umap")
+
+gc()
+
+saveRDS(thal, file="/media/chang/HDD-3/chang/david/thal_labelled.rds")
+saveRDS(second, file="/media/chang/HDD-3/chang/david/second_labelled.rds")
+
+DimPlot(second, label = T, cols = dittoColors()) +DimPlot(thal, cols=dittoColors(),reduction = 'ref.umap', group.by = "predicted.celltype.l1", label=T) & NoAxes()
+
+FeaturePlot(thal, features = c("TTR","FOXG1"),max.cutoff = 'q99',
+            order=T, reduction = 'ref.umap') & NoAxes()
+```
+
+```{r}
+second = readRDS("/media/chang/HDD-3/chang/david/second_labelled.rds")
+thal = readRDS("/media/chang/HDD-3/chang/david/thal_labelled.rds")
+
+thal@reductions$umap_denovo <- thal@reductions$umap
+thal@reductions$umap <- thal@reductions$ref.umap
+Idents(thal) = thal$predicted.celltype.l1
+
+circ_data <- prepare_circlize_data(thal, scale = 0.8 )
+set.seed(1234)
+cluster_colors<-dittoColors()[1:length(unique(thal$predicted.celltype.l1))]
+group_colors<-dittoColors()[1:length(unique(thal$Condition))]
+rep_colors<-dittoColors()[1:length(unique(thal$donor_id))]
+
+###plot and save figures
+pdf('~/22q_figs/label_transfer_circle.pdf', width = 6, height = 6)
+plot_circlize(circ_data,do.label = T, pt.size = 0.01, col.use = cluster_colors ,
+              bg.color = 'white', kde2d.n = 200, repel = T, label.cex = 0.6)
+add_track(circ_data, group = "Condition", colors = group_colors, track_num = 2) 
+add_track(circ_data, group = "donor_id",colors = rep_colors, track_num = 3) 
+dev.off()
+
+Idents(second) = second$class
+circ_data <- prepare_circlize_data(second, scale = 0.8 )
+set.seed(1234)
+cluster_colors<-dittoColors()[1:length(unique(second$class))]
+group_colors<-dittoColors()[1:length(unique(second$Sample))]
+age_colors<-dittoColors()[1:length(unique(second$Age))]
+area_colors<-dittoColors()[1:length(unique(second$Area))]
+
+###plot and save figures
+pdf('~/22q_figs/second_circle.pdf', width = 6, height = 6)
+plot_circlize(circ_data,do.label = T, pt.size = 0.01, col.use = cluster_colors ,
+              bg.color = 'white', kde2d.n = 200, repel = T, label.cex = 0.6)
+add_track(circ_data, group = "Sample", colors = group_colors, track_num = 2) 
+add_track(circ_data, group = "Age", colors = age_colors, track_num = 3) 
+add_track(circ_data, group = "Area", colors = area_colors, track_num = 4) 
+dev.off()
+
+
+pdf('~/22q_figs/line_bar.pdf', width = 4, height = 6)
+dittoBarPlot(thal, var='predicted.celltype.l1', group.by = 'donor_id')
+dev.off()
+#dittoBarPlot(thal, var='Condition', group.by = 'predicted.celltype.l1')
+
+FeaturePlot(thal, 
+            features = c("SLC17A6","SLC32A1","TCF7L2","GAD1",'GAD2',"EYA2"),
+            ncol=3,max.cutoff = 'q99',order=T) &NoAxes()
+
+thal@reductions$umap <- thal@reductions$umap_denovo
+
+
+thal = RunHarmony(thal, group.by.vars = "Batch",assay.use = "SCT",
+                  plot_convergence = T, theta=0)
+thal = RunUMAP(thal, dims=1:30, reduction='harmony')
+thal = FindNeighbors(thal, dims=1:30, reduction = 'harmony')
+thal = FindClusters(thal, algorithm = 2, resolution = .3)
+
+Idents(thal) = thal$SCT_snn_res.0.3
+thal$clusters = as.character(thal$SCT_snn_res.0.3)
+thal$clusters[thal$clusters == "7"] = "Div"
+thal$clusters[thal$clusters == "14"] = "Div"
+thal$clusters[thal$clusters == "12"] = "FB"
+thal$clusters[thal$SCT_snn_res.0.3 == 1] = "GL1"
+thal$clusters[thal$SCT_snn_res.0.3 == 2] = "GL2"
+thal$clusters[thal$clusters == "5"] = "IPC2"
+thal$clusters[thal$clusters == "6"] = "IPC1"
+thal$clusters[thal$clusters == "4"] = "AC"
+thal$clusters[thal$clusters == "9"] = "AC"
+thal$clusters[thal$clusters == "18"] = "AC"
+thal$clusters[thal$clusters == "0"] = "Gaba"
+thal$clusters[thal$clusters == "15"] = "Gaba"
+thal$clusters[thal$clusters == "17"] = "Gaba"
+thal$clusters[thal$clusters == "3"] = "Glut"
+thal$clusters[thal$clusters == "8"] = "Glut"
+thal$clusters[thal$clusters == "19"] = "Glut"
+thal$clusters[thal$clusters == "16"] = "Glut"
+thal$clusters[thal$SCT_snn_res.0.3 == 10] = "IPC3"
+thal$clusters[thal$SCT_snn_res.0.5 == 20] = "GL3"
+thal$clusters[thal$clusters == "13"] = "LQ"
+thal$clusters[thal$clusters == "11"] = "LQ"
+
+saveRDS(thal, file="/media/chang/HDD-3/chang/david/thal_labelled.rds")
+
+
+p1 = DimPlot(thal, group.by = c("clusters"),
+        cols=dittoColors(), label=T,pt.size=.1) & NoAxes()
+cells.located <- CellSelector(plot = p1)
+thal$clusters[cells.located] = "Gaba"
+
+test= wilcoxauc(thal, seurat_assay = "SCT")
+
+DimPlot(thal, group.by = c("clusters",'SCT_snn_res.0.3','predicted.celltype.l1'),
+        cols=dittoColors(), label=T) & NoAxes()
+
+pdf("~/22q_figs/org_final_cluster.pdf")
+DimPlot(thal, group.by = c("clusters"),
+        cols=dittoColors(), label=T) & NoAxes()
+dev.off()
+
+pdf("~/22q_figs/org_feature.pdf", height = 4)
+FeaturePlot(thal, features = c("SLC32A1","GAD1","SLC17A6","TCF7L2",
+                               "GLI3","EYA2"), max.cutoff = 'q99', order=T, ncol=3)&NoAxes() & scale_color_viridis()
+dev.off()
+
+dittoBarPlot(thal, var="predicted.celltype.l1",group.by = "clusters")
+
+Idents(thal) = thal$clusters
+markers = FindAllMarkers(thal, only.pos = T)
+saveRDS(markers, file='/media/chang/HDD-3/chang/david/markers.rds')
+
+
+markers = markers[!grepl("MIR", markers$gene),]
+markers = markers[!grepl("AL1", markers$gene),]
+markers = markers[!grepl("AL3", markers$gene),]
+
+
+
+markers %>%
+    group_by(cluster) %>%
+    top_n(n = 6, wt = avg_log2FC) -> top10
+
+genes = c("SLC17A6", "LHX9", "LHX2", "GBX2", "GAD1", "LHX1", "LHX5", "MEIS2","STC2",
+  "GLI3", "PAX6", "OTX2", "EYA2","MKI67","TOP2A","HSPA1A","HSPA6","PDK1",
+  "COL1A1","DCN","SPARCL1","SSTR2","RELN","MGP",'HES6',"CRABP1","SOX3","CRYAB",
+  "APOE","ATF5")
+
+pdf("~/22q_figs/dotplot.pdf", width = 6)
+Clustered_DotPlot(seurat_object = thal, features = genes, group.by = "clusters",
+                  colors_use_idents = dittoColors(), x_lab_rotate = 90)
+dev.off()
+
+
+
+seurat_subset <- SetupForWGCNA(
+  thal,
+  features = VariableFeatures(thal),
+  wgcna_name = "WGCNA"
+)
+
+seurat_subset <- MetacellsByGroups(
+  seurat_obj = seurat_subset,
+  group.by = c("clusters", "donor_id"),
+  k = 25,
+  max_shared=12,
+  min_cells = 50,
+  reduction = 'harmony',
+  ident.group = 'clusters',
+  slot = 'counts',
+  assay = 'cleaned',
+  wgcna_name="WGCNA"
+)
+seurat_subset <- NormalizeMetacells(seurat_subset)
+seurat_subset <- SetDatExpr(
+  seurat_subset,
+  group_name = "Glut", 
+  group.by='clusters', 
+  assay = 'cleaned', 
+  slot = 'data' # using normalized data
+)
+# Test different soft powers:
+seurat_subset <- TestSoftPowers(
+  seurat_subset,
+  networkType = 'signed'
+)
+
+seurat_subset = readRDS("/media/chang/HDD-3/chang/david/wgcna.rds")
+
+plot_list <- PlotSoftPowers(seurat_subset)
+print(wrap_plots(plot_list, ncol=2))
+
+seurat_subset <- ConstructNetwork(
+  seurat_subset, soft_power=7,
+  setDatExpr=FALSE,
+  tom_name = 'Glut' # name of the topoligical overlap matrix written to disk
+)
+
+PlotDendrogram(seurat_subset, main='Glut hdWGCNA Dendrogram')
+
+seurat_subset <- ScaleData(seurat_subset, features=VariableFeatures(seurat_subset),
+                           assay = "cleaned")
+seurat_subset <- ModuleEigengenes(
+ seurat_subset,assay = 'cleaned'#,group.by.vars='Batch'
+)
+
+seurat_subset <- ModuleConnectivity(
+  seurat_subset,
+  group.by = 'clusters', group_name = 'Glut'
+)
+seurat_subset <- ResetModuleNames(
+  seurat_subset,
+  new_name = "Glut-M"
+)
+
+MEs <- GetMEs(seurat_subset, harmonized=FALSE)
+
+modules <- GetModules(seurat_subset)
+hub_df <- GetHubGenes(seurat_subset, n_hubs = 10)
+
+saveRDS(seurat_subset, file='/media/chang/HDD-3/chang/david/wgcna.rds')
+
+
+p <- PlotKMEs(seurat_subset, ncol=5)
+
+plot_list <- ModuleFeaturePlot(
+  seurat_subset,
+  features='MEs', # plot the hMEs
+  order=TRUE # order so the points with highest MEs are on top
+)
+wrap_plots(plot_list, ncol=4)
+
+
+
+
+group1 <- thal@meta.data %>% subset(clusters == 'Glut' & Condition == "CTRL") %>% rownames
+group2 <- thal@meta.data %>% subset(clusters == 'Glut' & Condition == "22Q") %>% rownames
+
+DMEs <- FindDMEs(
+  thal,
+  barcodes1 = group1,
+  barcodes2 = group2,
+  test.use='wilcox',
+  wgcna_name='WGCNA'
+)
+
+PlotDMEsLollipop(
+  thal, 
+  DMEs, 
+  wgcna_name='WGCNA', 
+  pvalue = "p_val_adj"
+)
+
+PlotDMEsVolcano(
+  thal,
+  DMEs,
+  wgcna_name = 'WGCNA'
+)
+
+ModuleNetworkPlot(thal)
+
+HubGeneNetworkPlot(
+  thal,
+  n_hubs = 5, n_other=5,
+  edge_prop = 0.75,
+  mods = 'all'
+)
+
+thal <- RunModuleUMAP(
+  thal,
+  n_hubs = 25, # number of hub genes to include for the UMAP embedding
+  n_neighbors=15, # neighbors parameter for UMAP
+  min_dist=0.3 # min distance between points in UMAP space
+)
+
+ModuleUMAPPlot(
+  thal,label_genes = c("FOXP2","SOX2"),
+  edge.alpha=0.25,
+  sample_edges=TRUE,
+  edge_prop=0.1, # proportion of edges to sample (20% here)
+  label_hubs=2,# how many hub genes to plot per module?
+  keep_grey_edges=FALSE
+)
+
+dbs <- c('GO_Biological_Process_2021','GO_Cellular_Component_2021','GO_Molecular_Function_2021')
+# perform enrichment tests
+thal <- RunEnrichr(
+  thal,
+  dbs=dbs, # character vector of enrichr databases to test
+  max_genes = 100 # number of genes per module to test
+)
+
+EnrichrDotPlot(
+  thal,
+  mods = "all", # use all modules (this is the default behavior)
+  database = "GO_Molecular_Function_2021", # this has to be one of the lists we used above!!!
+  n_terms=1 # number of terms for each module
+)
+EnrichrBarPlot(
+  thal,
+  outdir = "enrichr_plots", # name of output directory
+  n_terms = 10, # number of enriched terms to show (sometimes more show if there are ties!!!)
+  plot_size = c(5,7), # width, height of the output .pdfs
+  logscale=TRUE # do you want to show the enrichment as a log scale?
+)
+
+pfm_core <- TFBSTools::getMatrixSet(
+  x = JASPAR2022,
+  opts = list(collection = "CORE", tax_group = 'vertebrates', all_versions = FALSE)
+)
+
+
+thal <- MotifScan(
+  thal,
+  species_genome = 'hg38',
+  pfm = pfm_core,
+  EnsDb = EnsDb.Hsapiens.v86
+)
+dim(GetMotifMatrix(thal))
+
+
+# TF target genes
+thal <- GetMotifTargets(thal)
+
+# check target genes for one TF:
+head(thal$FOXP2)
+
+
+
+
+
+network <- get_collectri(organism='human', split_complexes=FALSE)
+# Run weighted means algorithm.
+activities <- decoupleR::run_wmean(mat = as.matrix(thal@assays[["SCT"]]@data),
+                                   network = network,
+                                   .source = "source",
+                                   .targe = "target",
+                                   .mor = "mor",
+                                   times = 100,
+                                   minsize = 5)
+saveRDS(activities, file='/media/chang/HDD-3/chang/david/activities.rds')
+
+Idents(thal) = thal$clusters
+glut = subset(thal, idents = "Glut")
+DefaultAssay(glut) = 'cleaned'
+glut = NormalizeData(glut)
+markers = FindMarkers(glut, max.cells.per.ident = 6404, group.by = "Condition",
+                   ident.1 = "22Q", ident.2 = "CTRL", logfc.threshold = .5)
+
+markers = markers[!grepl("^AC[0-9]",rownames(markers)),]
+markers = markers[!grepl("^AL[0-9]",rownames(markers)),]
+markers = markers[!grepl("LINC",rownames(markers)),]
+markers = markers[!grepl("^MT",rownames(markers)),]
+
+SCpubr::do_VolcanoPlot(sample = glut,n_genes = 30,
+                            de_genes = markers)
+
+form <- ~ (1|donor_id) + (1|Condition)
+varPart <- fitExtractVarPartModel(as.matrix(glut@assays$cleaned@data[rownames(markers),]), form, glut@meta.data)
+
+vp = varPart[order(varPart$Condition, decreasing = T),]
+plotPercentBars( vp[1:80,] )
+plotVarPart( vp )
+
+
+seuratToH5AD(thal,h5ad_output = "/media/chang/HDD-3/chang/david/thal.h5ad",
+             pca=T,umap=T)
+```
+
+```{r}
+seuratToH5AD <- function(seuratObj, h5ad_output, pca=TRUE, umap=FALSE){
+  Sys.setenv(RETICULATE_PYTHON = "/home/chang/miniconda3/envs/venv/bin/python")
+  library(reticulate)
+  #use_condaenv('venv')
+  library(Matrix)
+  writeMM(t(seuratObj@assays$cleaned@counts), file='combined.mtx')
+  #writeMM(t(seuratObj@assays$SCT@data), file='sct.mtx')
+  writeMM(t(seuratObj@assays$spliced@counts), file='spliced.mtx')
+  writeMM(t(seuratObj@assays$unspliced@counts), file='unspliced.mtx')
+  write.csv(rownames(seuratObj@assays$spliced@counts), file = "genes.csv", row.names = FALSE)
+  if(umap == TRUE){
+  	write.csv(seuratObj@reductions$umap@cell.embeddings, file = "umap.csv", row.names = FALSE)
+  }
+  if(pca == TRUE){
+	  write.csv(seuratObj@reductions$harmony@cell.embeddings, file = "pca.csv", row.names = FALSE)
+  }
+  write.csv(colnames(seuratObj@assays$spliced@counts), file = "cells.csv", row.names = FALSE)
+  write.csv(seuratObj@meta.data, file = "meta.csv", row.names = FALSE)
+  source_python('/home/chang/build_combined.py')
+  build(h5ad_output, pca = pca, umap = umap)
+  file.remove('combined.mtx')
+  file.remove('spliced.mtx')
+  file.remove('unspliced.mtx')
+  file.remove('genes.csv')
+  file.remove('cells.csv')
+  file.remove('meta.csv')
+  #file.remove("sct.csv")
+  if(umap == TRUE){
+  	file.remove('umap.csv')
+  }
+  if(pca == TRUE){
+	  file.remove('pca.csv')
+  }
+}
+
+```
+
+```{r}
+
+
+
+
+sce = as.SingleCellExperiment(thal, assay='SCT')
+sce$id <- paste0(thal$Condition, thal$donor_id)
+# Create pseudobulk data by specifying cluster_id and sample_id
+# Count data for each cell type is then stored in the `assay` field
+# assay: entry in assayNames(sce) storing raw counts
+# cluster_id: variable in colData(sce) indicating cell clusters
+# sample_id: variable in colData(sce) indicating sample id for aggregating cells
+pb <- aggregateToPseudoBulk(sce,
+    assay = "counts",
+    cluster_id = "clusters",  
+    sample_id = "id",
+    verbose = FALSE)
+
+res.proc = processAssays( pb, ~ Condition, min.count=5)
+
+plotVoom( res.proc)
+
+vp.lst = fitVarPart( res.proc, ~ Condition)
+
+genes = vp.lst$gene[2:4]
+plotPercentBars(vp.lst[vp.lst$gene %in% genes,])
+
+plotVarPart(vp.lst, label.angle=60,) 
+
+res.dl = dreamlet( res.proc, ~ Condition)
+coefNames(res.dl) 
+
+plotVolcano( res.dl, coef = 'ConditionCTRL' ,ncol = 6)
 ```

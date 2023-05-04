@@ -15,6 +15,9 @@ saveRDS(vizgen.obj, file='vizgen_gw19.obj.rds')
 
 vizgen.obj <- LoadVizgen(data.dir = "/media/chang/HDD-8/chang/aparna/vizgen/Processed/202211082141_GW23Thalamus011620try2_VMSC01801/region_0/", fov = "thal")
 saveRDS(vizgen.obj, file='/media/chang/HDD-8/chang/aparna/vizgen_gw23_2.obj.rds')
+
+vizgen.obj <- LoadVizgen(data.dir = "/media/chang/HDD-3/chang/202304040410_gw23-121422-thalamusap0903-verymedial_VMSC01801/region_0/", fov = "thal")
+saveRDS(vizgen.obj, file='/media/chang/HDD-3/chang/vizgen_gw23_medial.obj.rds')
 ```
 
 ```{r}
