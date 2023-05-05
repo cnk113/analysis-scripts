@@ -7,12 +7,13 @@ SCOMATIC=$(pwd)
 sample=$1
 REF=~/refdata-gex-GRCh38-2020-A/fasta/genome.fa
 output_dir=$SCOMATIC/scomatic_out
+META=$SCOMATIC/cell_clus.tsv
+
 mkdir -p $output_dir
 
 output_dir1=$output_dir/Step1_BamCellTypes
 mkdir -p $output_dir1
 
-META=$SCOMATIC/cell_clus.tsv
 
 python ~/SComatic/scripts/SplitBam/SplitBamCellTypes.py --bam $SCOMATIC/possorted_genome_bam.bam \
         --meta $META \
@@ -69,6 +70,8 @@ python ~/SComatic/scripts/BaseCellCalling/BaseCellCalling.step2.py \
           --outfile ${output_dir4}/${sample} \
           --editing $editing \
           --pon $PON
+
+bedtools intersect -header -a ${output_dir4}/${sample}.calling.step2.tsv -b ~/SComatic/bed_files_of_interest/UCSC.k100_umap.without.repeatmasker.bed | awk '$1 ~ /^#/ || $6 == "PASS"' > ${output_dir4}/${sample}.calling.step2.pass.tsv
 
 STEP4_2_pass=${output_dir4}/${sample}.calling.step2.pass.tsv
 
