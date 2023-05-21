@@ -25,6 +25,13 @@ library(motifmatchr)
 library(TFBSTools)
 library(EnsDb.Hsapiens.v86)
 library(GenomicRanges)
+library(ggplot2)
+library(hdWGCNA)
+library(ggrepel)
+library(enrichR)
+library(GeneOverlap)
+library(dplyr)
+
 
 ReadSTAR <- function(data.dir, vireo,  proj = "SeuratObject", feats = 1000, 
                      ratio=.1, counts = 1000, sample="Sample") {
@@ -603,14 +610,15 @@ thal$clusters[thal$clusters == "18"] = "AC"
 thal$clusters[thal$clusters == "0"] = "Gaba"
 thal$clusters[thal$clusters == "15"] = "Gaba"
 thal$clusters[thal$clusters == "17"] = "Gaba"
-thal$clusters[thal$clusters == "3"] = "Glut"
+thal$clusters[thal$SCT_snn_res.0.3 == "3"] = "nGlut"
 thal$clusters[thal$clusters == "8"] = "Glut"
-thal$clusters[thal$clusters == "19"] = "Glut"
-thal$clusters[thal$clusters == "16"] = "Glut"
+thal$clusters[thal$clusters == "19"] = "nGlut"
+thal$clusters[thal$SCT_snn_res.0.3 == "16"] = "nGlut"
 thal$clusters[thal$SCT_snn_res.0.3 == 10] = "IPC3"
 thal$clusters[thal$SCT_snn_res.0.5 == 20] = "GL3"
-thal$clusters[thal$clusters == "13"] = "LQ"
-thal$clusters[thal$clusters == "11"] = "LQ"
+thal$clusters[thal$SCT_snn_res.0.3 == "13"] = "GL4"
+thal$clusters[thal$SCT_snn_res.0.3 == "11"] = "GL4"
+Idents(thal) = thal$clusters
 
 saveRDS(thal, file="/media/chang/HDD-3/chang/david/thal_labelled.rds")
 
@@ -664,83 +672,84 @@ dev.off()
 
 
 
-seurat_subset <- SetupForWGCNA(
+thal <- SetupForWGCNA(
   thal,
   features = VariableFeatures(thal),
   wgcna_name = "WGCNA"
 )
 
-seurat_subset <- MetacellsByGroups(
-  seurat_obj = seurat_subset,
-  group.by = c("clusters", "donor_id"),
-  k = 25,
-  max_shared=12,
+thal <- MetacellsByGroups(
+  seurat_obj = thal,
+  group.by = c("clusters", "Condition"),
+  k = 30,
+  max_shared = 15 ,
   min_cells = 50,
+  target_metacells= 1000,
   reduction = 'harmony',
   ident.group = 'clusters',
   slot = 'counts',
   assay = 'cleaned',
   wgcna_name="WGCNA"
 )
-seurat_subset <- NormalizeMetacells(seurat_subset)
-seurat_subset <- SetDatExpr(
-  seurat_subset,
+thal <- NormalizeMetacells(thal)
+thal <- SetDatExpr(
+  thal,
   group_name = "Glut", 
   group.by='clusters', 
   assay = 'cleaned', 
   slot = 'data' # using normalized data
 )
 # Test different soft powers:
-seurat_subset <- TestSoftPowers(
-  seurat_subset,
+thal <- TestSoftPowers(
+  thal,
   networkType = 'signed'
 )
 
-seurat_subset = readRDS("/media/chang/HDD-3/chang/david/wgcna.rds")
+#saveRDS(thal, file="/media/chang/HDD-3/chang/david/wgcna.rds")
+#thal = readRDS("/media/chang/HDD-3/chang/david/wgcna.rds")
 
-plot_list <- PlotSoftPowers(seurat_subset)
+plot_list <- PlotSoftPowers(thal)
 print(wrap_plots(plot_list, ncol=2))
 
-seurat_subset <- ConstructNetwork(
-  seurat_subset, soft_power=7,
-  setDatExpr=FALSE,
+thal <- ConstructNetwork(
+  thal, soft_power=6,
+  setDatExpr=FALSE,overwrite_tom = T,
   tom_name = 'Glut' # name of the topoligical overlap matrix written to disk
 )
 
-PlotDendrogram(seurat_subset, main='Glut hdWGCNA Dendrogram')
+PlotDendrogram(thal, main='Glut hdWGCNA Dendrogram')
 
-seurat_subset <- ScaleData(seurat_subset, features=VariableFeatures(seurat_subset),
+thal <- ScaleData(thal, features=VariableFeatures(thal),
                            assay = "cleaned")
-seurat_subset <- ModuleEigengenes(
- seurat_subset,assay = 'cleaned'#,group.by.vars='Batch'
+thal <- ModuleEigengenes(
+ thal,assay = 'cleaned'#,group.by.vars='Batch'
 )
 
-seurat_subset <- ModuleConnectivity(
-  seurat_subset,
+MEs <- GetMEs(thal, harmonized=FALSE)
+
+thal <- ModuleConnectivity(
+  thal,harmonized = F,
   group.by = 'clusters', group_name = 'Glut'
 )
-seurat_subset <- ResetModuleNames(
-  seurat_subset,
+
+thal <- ResetModuleNames(
+  thal,
   new_name = "Glut-M"
 )
 
-MEs <- GetMEs(seurat_subset, harmonized=FALSE)
+modules <- GetModules(thal)
+hub_df <- GetHubGenes(thal, n_hubs = 10)
 
-modules <- GetModules(seurat_subset)
-hub_df <- GetHubGenes(seurat_subset, n_hubs = 10)
-
-saveRDS(seurat_subset, file='/media/chang/HDD-3/chang/david/wgcna.rds')
-
-
-p <- PlotKMEs(seurat_subset, ncol=5)
+p <- PlotKMEs(thal, ncol=5)
 
 plot_list <- ModuleFeaturePlot(
-  seurat_subset,
+  thal,
   features='MEs', # plot the hMEs
   order=TRUE # order so the points with highest MEs are on top
 )
 wrap_plots(plot_list, ncol=4)
 
+saveRDS(thal, file='/media/chang/HDD-3/chang/david/wgcna.rds')
 
 
 
@@ -748,7 +757,7 @@ group1 <- thal@meta.data %>% subset(clusters == 'Glut' & Condition == "CTRL") %>
 group2 <- thal@meta.data %>% subset(clusters == 'Glut' & Condition == "22Q") %>% rownames
 
 DMEs <- FindDMEs(
-  thal,
+  thal,harmonized = F,
   barcodes1 = group1,
   barcodes2 = group2,
   test.use='wilcox',
@@ -768,13 +777,32 @@ PlotDMEsVolcano(
   wgcna_name = 'WGCNA'
 )
 
+DMEs_all <- FindAllDMEs(
+  thal,harmonized = F,
+  group.by = 'clusters',
+  wgcna_name = 'WGCNA'
+)
+
+p <- PlotDMEsVolcano(
+  thal,
+  DMEs_all,
+  wgcna_name = 'WGCNA',
+  plot_labels=FALSE,
+  show_cutoff=FALSE
+)
+
+# facet wrap by each cell type
+p + facet_wrap(~group, ncol=4)
+
+
+
 ModuleNetworkPlot(thal)
 
 HubGeneNetworkPlot(
-  thal,
-  n_hubs = 5, n_other=5,
+  thal, 
+  n_hubs = 50, n_other=50,
   edge_prop = 0.75,
-  mods = 'all'
+  mods = "Glut-M3"
 )
 
 thal <- RunModuleUMAP(
@@ -785,13 +813,16 @@ thal <- RunModuleUMAP(
 )
 
 ModuleUMAPPlot(
-  thal,label_genes = c("FOXP2","SOX2"),
+  thal,label_genes = c("FOXP2"),
   edge.alpha=0.25,
   sample_edges=TRUE,
   edge_prop=0.1, # proportion of edges to sample (20% here)
   label_hubs=2,# how many hub genes to plot per module?
   keep_grey_edges=FALSE
 )
+
+
+
 
 dbs <- c('GO_Biological_Process_2021','GO_Cellular_Component_2021','GO_Molecular_Function_2021')
 # perform enrichment tests
@@ -814,32 +845,258 @@ EnrichrBarPlot(
   plot_size = c(5,7), # width, height of the output .pdfs
   logscale=TRUE # do you want to show the enrichment as a log scale?
 )
+```
 
-pfm_core <- TFBSTools::getMatrixSet(
+```{r}
+pfm <- TFBSTools::getMatrixSet(
   x = JASPAR2022,
   opts = list(collection = "CORE", tax_group = 'vertebrates', all_versions = FALSE)
 )
 
 
-thal <- MotifScan(
+##################
+EnsDb= EnsDb.Hsapiens.v86
+  
+  motif_df <- data.frame(
+    motif_name = purrr::map(1:length(pfm), function(i){pfm[[i]]@name}) %>% unlist,
+    motif_ID = purrr::map(1:length(pfm), function(i){pfm[[i]]@ID}) %>% unlist
+  )
+
+  # get promoters of protein coding genes from the given Ensdb
+  # note: everything breaks if I try to use X & Y chromosomes.
+  gene.promoters <- ensembldb::promoters(EnsDb, filter = ~ gene_biotype == "protein_coding") %>%
+    subset(seqnames %in% c(1:100))
+  gene.coords <- ensembldb::genes(EnsDb, filter = ~ gene_biotype == "protein_coding") %>%
+    subset(seqnames %in% c(1:100))
+
+  # add the gene name to the promoter object
+  gene.promoters$symbol <- gene.coords$symbol[match(gene.promoters$gene_id, names(gene.coords))]
+
+  # drop unnecessary chromosomes
+  gene.promoters <- keepSeqlevels(gene.promoters, value= levels(droplevels(seqnames(gene.promoters))))
+
+  # rename seqlevels to add 'chr', remove X&Y chromosomes because they break everything
+  old_levels <- levels(seqnames(gene.promoters))
+  new_levels <- ifelse(old_levels %in% c('X', 'Y'), old_levels, paste0('chr', old_levels))
+  gene.promoters <- renameSeqlevels(gene.promoters, new_levels)
+
+  # set the genome (not sure if we NEED to do this...)
+  genome(seqinfo(gene.promoters)) <- 'hg38'
+
+  # set up promoters object that only has the necessary info for motifmatchr
+  my_promoters <- GRanges(
+    seqnames =  droplevels(seqnames(gene.promoters)),
+    IRanges(
+      start = start(gene.promoters),
+      end = end(gene.promoters)
+    ),
+    symbol = gene.promoters$symbol,
+    genome="hg38"
+  )
+
+  # scan these promoters for motifs:
+  print('Matching motifs...')
+  motif_ix <- motifmatchr::matchMotifs(pfm, my_promoters, genome="hg38")
+
+  # get the matches
+  tf_match <- motifmatchr::motifMatches(motif_ix)
+  rownames(tf_match) <- my_promoters$symbol
+
+  # use motif names as the column names:
+  motif_df <- motif_df[motif_df$motif_ID %in% colnames(tf_match), ] # removes motif IDs not present in tf_match
+  colnames(tf_match) <- motif_df$motif_name
+
+  # only keep genes that are in the Seurat object and in the given EnsDb:
+  gene_list <- rownames(thal)
+  gene_list <- gene_list[gene_list %in% rownames(tf_match)]
+  tf_match <- tf_match[gene_list,]
+
+  print('Getting TF target genes...')
+  tfs <- motif_df$motif_name
+  tf_targets <- list()
+  n_targets <- list()
+  for(cur_tf in tfs){
+    tf_targets[[cur_tf]] <- names(tf_match[,cur_tf][tf_match[,cur_tf]])
+    n_targets[[cur_tf]] <- length(tf_targets[[cur_tf]] )
+  }
+  n_targets <- unlist(n_targets)
+
+  # add number of target genes to motif df
+  motif_df = motif_df[!duplicated(motif_df$motif_name),]
+  rownames(motif_df) = motif_df$motif_name
+  motif_df = motif_df[names(n_targets),]
+  motif_df$n_targets <- n_targets
+  # add info to seurat object
+  thal <- SetMotifMatrix(thal, tf_match)
+  thal <- SetMotifs(thal, motif_df)
+  thal <- SetMotifTargets(thal, tf_targets)
+  thal <- SetPFMList(thal, pfm)
+#############
+  
+  
+target_genes <- GetMotifTargets(thal)
+thal <- OverlapModulesMotifs(thal)
+
+head(GetMotifOverlap(thal))
+
+MotifOverlapBarPlot(
   thal,
-  species_genome = 'hg38',
-  pfm = pfm_core,
-  EnsDb = EnsDb.Hsapiens.v86
+  #motif_font = 'xkcd_regular',
+  outdir = '~/motifs/',
+  plot_size=c(5,6)
 )
-dim(GetMotifMatrix(thal))
 
 
-# TF target genes
-thal <- GetMotifTargets(thal)
+ModuleTFNetwork(
+  thal,
+  edge.alpha=0.75,
+  cor_thresh = 0.75,
+  tf_name = "FOXP2",
+  tf_gene_name = "FOXP2",
+  tf_x = -7,
+  tf_y = -7
+)
 
-# check target genes for one TF:
-head(thal$FOXP2)
+head(target_genes$FOXP2)
 
 
+ggplot() + ggseqlogo::geom_logo( as.matrix(pfm[["MA0593.1"]])) +
+        ggseqlogo::theme_logo() +
+        xlab('') + ylab("FOXP2") + theme(
+          axis.text.x=element_blank(),
+          axis.text.y=element_blank(),
+          axis.title.y = element_text(angle=0))
+          
+
+library(UCell)
+thal <- MotifTargetScore(
+  thal,maxRank=10000,
+  method='UCell'
+)
+
+df <- GetMotifOverlap(thal)
+
+cur_df <- df %>% subset(tf == 'FOXP2')
+
+plot_var <- 'odds_ratio'
+p <- cur_df %>%
+  ggplot(aes(y=reorder(module, odds_ratio), x=odds_ratio)) +
+  geom_bar(stat='identity', fill=cur_df$color) +
+  geom_vline(xintercept = 1, linetype='dashed', color='gray') +
+  geom_text(aes(label=Significance), color='black', size=3.5, hjust='center') +
+  ylab('') +
+  xlab("Odds Ratio") +
+  ggtitle("FOXP2 overlap") +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  ) + theme_bw()
 
 
+png(paste0(fig_dir, 'Sox9_motif_overlap_or.png'), width=3, height=4, units='in', res=400)
+p
+dev.off()
 
+saveRDS(thal, file='/media/chang/HDD-3/chang/david/thal_labelled.rds')
+
+```
+
+
+```{r}
+seurat_obj = thal
+MotifOverlapBarPlot2 <- function(
+  seurat_obj,
+  n_tfs = 10,
+  plot_size = c(5,6),
+  outdir = "MotifOverlaps/",
+  motif_font = 'helvetica_regular',
+  module_names = NULL,
+  wgcna_name=NULL
+){
+
+  if(is.null(wgcna_name)){wgcna_name <- seurat_obj@misc$active_wgcna}
+
+  # make output dir if it doesn't exist:
+  if(!dir.exists(outdir)){dir.create(outdir)}
+
+  # get Modules
+  modules <- GetModules(seurat_obj)
+  mods <- levels(modules$module)
+  mods <- mods[mods != 'grey']
+
+  if(is.null(module_names)){module_names <- mods}
+
+  # get overlap info from Seurat obj
+  overlap_df <- GetMotifOverlap(seurat_obj, wgcna_name)
+  motif_df <- GetMotifs(seurat_obj)
+
+  # get pfm list from Seurat obj
+  pfm <- GetPFMList(seurat_obj)
+
+  # add motif ID to the overlap_df
+  overlap_df$motif_ID <- motif_df$motif_ID[match(overlap_df$tf, motif_df$motif_name)]
+
+  # subset by the modules that we are using:
+  overlap_df <- overlap_df %>% subset(module %in% module_names)
+
+  for(cur_mod in module_names){
+    print(cur_mod)
+    # get df for cur mod
+    plot_df <- overlap_df %>% subset(module == cur_mod) %>% top_n(n_tfs, wt=odds_ratio) %>%
+      arrange(desc(odds_ratio))
+
+    # make the barplot
+    p1 <- plot_df %>% ggplot(aes(y=reorder(tf, odds_ratio), fill=odds_ratio, x=odds_ratio)) +
+      geom_bar(stat='identity', width=0.7) + NoLegend() +
+      scale_fill_gradient(high=unique(plot_df$color), low='grey90') +
+      ylab('') + theme(
+        axis.line.y = element_blank(),
+        axis.text.y = element_blank(),
+        plot.margin = margin(
+          t = 0, r = 0, b = 0, l = 0
+        )
+      )
+
+    # make the motif logo plots:
+    plot_list <- list()
+    for(i in 1:nrow(plot_df)){
+      cur_id <- plot_df[i,'motif_ID']
+      cur_name <- plot_df[i,'tf']
+      plot_list[[cur_id]] <- ggplot() +
+        ggseqlogo::geom_logo( as.matrix(pfm[[cur_id]]), font=motif_font) +
+        ggseqlogo::theme_logo() +
+        xlab('') + ylab(cur_name) + theme(
+          axis.text.x=element_blank(),
+          axis.text.y=element_blank(),
+          axis.title.y = element_text(angle=0),
+          plot.margin = margin(t = 0,  # Top margin
+                                 r = 0,  # Right margin
+                                 b = 0,  # Bottom margin
+                                 l = 0) # Left margin
+        )
+    }
+
+    # wrap the motif logos
+    patch1 <- wrap_plots(plot_list, ncol=1)
+
+    # assemble the plot with patchwork
+    outplot <- (patch1 | p1) +
+          plot_layout(ncol=2, widths=c(1,2)) +
+          plot_annotation(title=paste0('Motif overlaps with ', cur_mod),
+          theme = theme(plot.title=element_text(hjust=0.5))
+        )
+
+    pdf(paste0('~/motifs/', cur_mod, '_motif_overlaps.pdf'), width=plot_size[1], height=plot_size[2], useDingbats=FALSE)
+    print(outplot)
+    dev.off()
+
+  }
+
+}
+
+
+```
+
+```{r}
 network <- get_collectri(organism='human', split_complexes=FALSE)
 # Run weighted means algorithm.
 activities <- decoupleR::run_wmean(mat = as.matrix(thal@assays[["SCT"]]@data),
