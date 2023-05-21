@@ -1,0 +1,22 @@
+---
+title: "rub"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+library(Seurat)
+library(dittoSeq)
+library(viridis)
+```
+
+```{r}
+merged = readRDS("merged_seurat_object.rds")
+merged = subset(merged, subset=nCount_RNA > 500 % percent.mt < 20)
+merged = SCTransform(merged)
+merged = RunPCA(merged)
+merged = RunUMAP(merged, dims=1:20)
+merged = FindNeighbors(merged, dims=1:20)
+merged = FindClusters(merged, algorithm=4, resolution=0.3)
+merged = FindClusters(merged, algorithm=4, resolution=0.4)
+merged = FindClusters(merged, algorithm=4, resolution=0.6)
+```
