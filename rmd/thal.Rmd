@@ -749,20 +749,16 @@ pdf("/media/chang/HDD-8/chang/aparna/pdfs/second_box_doublet.pdf", width = 10)
 do_BoxPlot(sample = second, feature = "hybrid_score") +do_BoxPlot(sample = second, feature = "hybrid_score", group.by = "Sample") & ylim(0,1.5)
 dev.off()
 
-
-
 circ_data <- prepare_circlize_data(thal, scale = 0.7 )
 cluster_colors<-dittoColors()[1:length(levels(thal))]
 group_colors<-dittoColors()[1:length(names(table(thal$Sample)))]
 area_colors <-dittoColors()[1:length(names(table(thal$Area)))]
 age_colors <-dittoColors()[1:length(names(table(thal$Age)))]
-
 ###plot and save figures
-#png('/media/chang/HDD-3/chang/dapi/circlize_plot.png', 
-   # width = 7, height = 7, res = 300)
-pdf('/media/chang/HDD-3/chang/dapi/circlize_plot.pdf', width = 6, height = 6)
+#png('/media/chang/HDD-3/chang/dapi/circlize_plot.png', width = 7, height = 7, res = 1000)
+#par(omi = c(0,0,0,0), mgp = c(0,0,0), mar = c(0,0,0,0), family = "D")
+pdf("/media/chang/HDD-3/chang/dapi/circlize_plot.pdf", width = 6, height = 6)
 plot_circlize(circ_data,do.label = T, pt.size = 0.01, col.use = cluster_colors,
-              contour.levels = 0,contour.nlevels = 2,
               bg.color = 'white', kde2d.n = 200, repel = T, label.cex =.8)
 add_track(circ_data, group = "Sample", colors = group_colors, track_num = 2) 
 add_track(circ_data, group = "Area",colors = area_colors, track_num = 3) 
@@ -1226,12 +1222,9 @@ jab$Sensory = unique(orthologs(readLines("/media/chang/HDD-3/chang/sens.txt"),
                           species = "mouse", human = FALSE)$human_symbol)
 jab$Visual = unique(orthologs(readLines("/media/chang/HDD-3/chang/visual.txt"), 
                           species = "mouse", human = FALSE)$human_symbol)
-thal = AddModuleScore_UCell(thal, features = jab,assay = "cleaned", ncores = 16)
+thal = AddModuleScore_UCell(thal, features = jab,assay = "SCT", ncores = 16)
 
-pdf("/media/chang/HDD-3/chang/dapi/jab.pdf", height = 5, width = 5)
-VlnPlot(subset(thal, idents=c("EN1","EN2","EN3")), features=c("HO_UCell","FO_UCell",
-        "Sensory_UCell","Visual_UCell"),cols=dittoColors(), pt.size=0, ncol = 2)
-dev.off()
+
 
 thalamoseq.markers = readxl::read_xlsx("/media/chang/HDD-3/chang/sc_markers.xlsx",
                                        sheet=3)
@@ -1250,9 +1243,23 @@ thm$M1_S1 = unique(orthologs(c(thalamoseq.markers$gene[thalamoseq.markers$cluste
                             thalamoseq.markers$gene[thalamoseq.markers$cluster == "cluster_4"]),
        species = "mouse", human = FALSE)$human_symbol)
 thal = AddModuleScore_UCell(thal, features = thm,assay = "cleaned", ncores = 16)
-pdf("/media/chang/HDD-3/chang/dapi/thalamoseq_sc_ucell.pdf", width = 5, height = 5)
+
 VlnPlot(subset(thal, idents=c("EN1","EN2","EN3")), features=c("PFC_UCell","V1_UCell",
         "A1_UCell","M1_S1_UCell"),cols=dittoColors(), pt.size=0, ncol = 2)
+VlnPlot(subset(thal, idents=c("EN1","EN2","EN3")), 
+        ncol = 3, pt.size= 0,cols=dittoColors(),features =c("Primary_UCell",
+                                                            "Secondary_UCell",
+                                                            "Tertiary_UCell",
+                                                            "AD_UCell","RE_UCell"))
+VlnPlot(subset(thal, idents=c("EN1","EN2")), features=c("HO_UCell","FO_UCell",
+        "Sensory_UCell","Visual_UCell"),cols=dittoColors(), pt.size=0, ncol = 2)
+
+
+pdf("/media/chang/HDD-3/chang/dapi/ucell_all.pdf", height = 6, width = 7)
+VlnPlot(subset(thal, idents=c("EN1","EN2")), features=c("HO_UCell","FO_UCell",
+        "Sensory_UCell","Visual_UCell", "PFC_UCell","V1_UCell","A1_UCell","M1_S1_UCell",
+        "Primary_UCell", "Secondary_UCell", "Tertiary_UCell"),
+        cols=dittoColors(), pt.size=0, ncol = 4)
 dev.off()
 ```
 
@@ -1310,28 +1317,53 @@ thalamoseq = RunUMAP(thalamoseq, dims=1:10)
 Idents(thalamoseq) = thalamoseq$region
 DimPlot(thalamoseq ,cols=dittoColors(), label=T, pt.size = 4, reduction = 'pca')
 
-thalamoseq.markers = RunPrestoAll(thalamoseq, assay = 'SCT')
+thalamoseq$Area = "Primary"
+thalamoseq$Area[grepl("VPMpc|MD|LP|PO|AM|IAD|VA|VM",thalamoseq$region)] = "Secondary"
+thalamoseq$Area[grepl("CL|PF|CM|PCN|SPA|IMD|PVT",thalamoseq$region)] = "Tertiary"
+thalamoseq$Area[thalamoseq$region == "AD"] = "AD"
+thalamoseq$Area[thalamoseq$region == "RE"] = "RE"
 
+thalamoseq$Area = as.factor(thalamoseq$Area)
+Idents(thalamoseq) = thalamoseq$Area
+levels(thalamoseq) = c("Primary","Secondary","Tertiary","AD","RE")
+thalamoseq.markers = RunPrestoAll(thalamoseq, assay = 'SCT')
+thalamoseq.markers = thalamoseq.markers[thalamoseq.markers$p_val_adj < .1,]
+thalamoseq.markers = thalamoseq.markers[thalamoseq.markers$cluster != "AD",]
+thalamoseq.markers = thalamoseq.markers[thalamoseq.markers$cluster != "RE",]
 thalamoseq.markers %>%
     group_by(cluster) %>%
-    top_n(n = 30, wt = avg_log2FC) -> top10
+    top_n(n = 50, wt = avg_log2FC) -> top10
 top10 = data.frame(top10)
 top10.df <- split(top10,top10$cluster)
 top10.df = lapply(top10.df, function(i) unlist(lapply(strsplit(i$gene, "\\."), 
                   function(j) j[[1]])))
+top10.df = top10.df[1:3]
 thal = AddModuleScore_UCell(thal, features = top10.df,assay = "cleaned", ncores = 16)
 
-VlnPlot(subset(thal, idents=c("EN1","EN2","EN3","IN1","IN2","IN3","IN4","IN5")), 
-        ncol = 6, pt.size= 0,cols=dittoColors(),features =
-          colnames(thal@meta.data)[65:82])
+VlnPlot(subset(thal, idents=c("EN1","EN2","EN3")), 
+        ncol = 3, pt.size= 0,cols=dittoColors(),features =c("Primary_UCell",
+                                                            "Secondary_UCell",
+                                                            "Tertiary_UCell"))
 
-pdf("/media/chang/HDD-3/chang/dapi/proj_2.pdf", width = 14, height = 7)
-VlnPlot(subset(thal, idents=c("EN1","EN2","EN3","IN1","IN2","IN3","IN4","IN5")), 
-        ncol = 6, pt.size= 0,cols=dittoColors(),features =
-          colnames(thal@meta.data)[65:82])
+pdf('/media/chang/HDD-3/chang/dapi/density.pdf', width = 12, height = 10)
+plot_density(subset(thal, idents=c("EN1","EN2","EN3")), features = c("SLC17A6", "LHX9", "GBX2", "FOXP2", "SOX2", "CADM1", "PENK","CBLN2","CRTAC1"), reduction = 'umap') & NoAxes()
 dev.off()
 
+genes = c("SLC17A6", "LHX9", "GBX2", "FOXP2", "SOX2", "CADM1", "PENK","CBLN2","CRTAC1",
+                                "GAD1", "LHX1", "LHX5", "SST", "PVALB", "ISL1", 
+                                "INHBA", "FOXG1", "CRABP1", "DLX5", "SOX14", "OTX2", 
+                                "TLL1","NEUROD1", "NEUROD4", "NEUROG1", "NEUROG2", 
+                                "EYA2", "DACH2","OLIG1", "OLIG2", "HES6", "ASCL1", 
+                                "DLL1", "PDGFRA","PTN","GFAP","AQP4","GJA1", "TNC",
+                                "AGT","SPARCL1","GADD45B","ID3","LGR6","WFDC1","PLA2G5",
+                                "MKI67","FOXJ1","CLDN5","DCN","HIGD1B","AIF1")
 
+pdf('/media/chang/HDD-3/chang/dapi/density.pdf', width = 12, height = 8)
+plot_density(thal, features =genes[1:25], 
+             reduction = 'umap') & NoAxes()
+plot_density(thal, features =genes[26:50], 
+             reduction = 'umap') & NoAxes()
+dev.off()
 ```
 
 ```{r}
@@ -1361,3 +1393,43 @@ jjDotPlot(object = first,assay = 'SCT',ytree = F,
 dev.off()
 ```
 
+
+```{r}
+group <- structure(thal_n$class,names=thal_n$clusters) # create the cell class for the subclasses, used for plot 
+thal_n = subset(thal, idents=c("EN1","EN2","IN1","IN2","IN3","IN4","IN5","IN6"))
+thal_n@meta.data$class = "IN"
+thal_n$class[grepl("EN",thal_n$clusters)] = "EN"
+# creat NeuronChat object; choose the database 'mouse' for mouse data; 'human' for human data
+# note that the first parameter should be a numeric matrix with row gene and column cell
+nc <- createNeuronChat(thal_n@assays$cleaned@data,thal_n@meta.data,
+                       DB='human', group.by = thal_n$clusters)
+
+
+# M is for the permutation test; typically ~4 mins when M=100, depending on the dataset size and the number of cell groups
+# setting M=10 to get a quick start
+nc <- run_NeuronChat(nc,M=100)
+#> Time difference of 5.181635 mins
+# the the communication networks for individual interaction pairs are stored in slot 'net'
+# aggregate the communication networks over all interaction pairs, method can be 'weight', 'count' and so on
+net_aggregated_x <- net_aggregation(nc@net,method = 'weight')
+
+
+
+
+par(mfrow=c(1,2))
+# Visualization, circle plot, for the aggregated network
+netVisual_circle_neuron(nc,group=group,vertex.label.cex = 1)
+# Visualization, chordDiagram, for the aggregated network; also using cellchat function netVisual_chord_cell_internal(net_aggregated_x, group = group,lab.cex=1)
+netVisual_chord_neuron(nc,method = 'weight',group=group,lab.cex = 1)
+
+heatmap_aggregated(nc, method='weight',group=group)
+
+lig_tar_heatmap(nc,interaction_name='PENK_OPRM1',width.vector=c(0.38,0.35,0.27))
+
+g1 <- rankNet_Neuron(nc,slot.name = "net",measure = c("weight"),mode='single',font.size = 5) 
+g2 <- rankNet_Neuron(nc,slot.name = "net",measure = c("count"),mode='single',font.size = 5)
+g1+g2
+
+x<- identifyCommunicationPatterns_Neuron(nc, slot.name = "net", pattern = c("outgoing"), k=4,height = 18)
+x<- identifyCommunicationPatterns_Neuron(nc, slot.name = "net", pattern = c("incoming"), k=4,height = 18)
+```

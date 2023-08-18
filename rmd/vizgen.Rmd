@@ -321,6 +321,21 @@ obj <- LoadVizgen(data.dir = dir_use,
              verbose = TRUE)
 obj = subset(obj, subset=nCount_Vizgen >= 10 & volume <= 3000 & nFeature_Vizgen <= 120)
 saveRDS(obj, file="/media/chang/HDD-3/chang/CS22_Medial.rds")
+
+dir_use <- "/media/chang/HDD-4/chang/202307291807_GW23-121423-pulvinar_VMSC13702/region_0/"
+obj <- LoadVizgen(data.dir = dir_use,  
+             fov = "GW23_PV", 
+             assay = "Vizgen",
+             metadata = c("volume", "fov"), # add cell volume info
+             type = c("segmentations", "centroids"), # type of cell spatial coord matrices
+             z = 3L,
+             add.zIndex = TRUE, # add z slice section to a cell
+             update.object = TRUE,
+             use.BiocParallel = TRUE,
+             workers.MulticoreParam = 14, # for `BiocParallel` processing
+             verbose = TRUE)
+obj = subset(obj, subset=nCount_Vizgen >= 20 & volume <= 2000 & nFeature_Vizgen <= 120)
+saveRDS(obj, file="/media/chang/HDD-3/chang/GW23_PV.rds")
 ```
 
 
@@ -357,9 +372,19 @@ first$clusters[first$clusters == "nEN1"] = "IPC"
 first$clusters[first$clusters == "nIPC1"] = "nIPC"
 first$clusters = as.factor(first$clusters)
 Idents(first) = first$clusters
+
+first$clusters2 = as.character(first$clusters)
+first$clusters2[first$clusters2 == "EN"] = "EN1"
+first$clusters2[first$clusters2 == "IPC"] = "EN2"
+first$clusters2[first$clusters2 == "NPC1"] = "RG2"
+first$clusters2[first$clusters2 == "nIPC"] = "IPC1"
+first$clusters2[first$clusters2 == "NPC2"] = "RG1"
+first$clusters2[first$clusters2 == "NPC3"] = "IPC2"
+Idents(first) = as.factor(first$clusters2)
 saveRDS(first, file = "/media/chang/HDD-3/chang/first_filtered.rds")
 DefaultAssay(first) = "cleaned"
-first.markers = FindAllMarkers(first)
+first.markers = RunPrestoAll(first)
+write.csv(first.markers,"/media/chang/HDD-3/chang/dapi/first_markers.csv", quote=F)
 saveRDS(first.markers, file = "/media/chang/HDD-3/chang/first_filtered_markers.rds")
 
 pdf("/media/chang/HDD-3/chang/dapi/first_umap.pdf", width = 10)
@@ -398,9 +423,6 @@ rctd.seurat = function(spatial, ref){
   spatial$predicted.celltype <- annotations
   keep.cells <- Cells(spatial)[!is.na(spatial$predicted.celltype)]
   subset(spatial, cells = keep.cells) 
-  
-  #BuildNicheAssay(object = spatial, group.by = "predicted.celltype",
-  #  niches.k = 5, neighbors.k = 30)
 }
 
 gw23_vm = readRDS('/media/chang/HDD-3/chang/gw23_vmedial.rds')
@@ -452,6 +474,13 @@ gw21 = RunPCA(gw21)
 gw21 = FindNeighbors(gw21, dims=1:10)
 gw21 = RunUMAP(gw21, dims=1:10)
 gw21 = FindClusters(gw21, algorithm = 2, resolution = .3)
+gw23_pv = readRDS('/media/chang/HDD-3/chang/GW21_PV.rds')
+gw23_pv = SCTransform(gw23_pv, vst.flavor = "v2", assay="Vizgen")
+gw23_pv = RunPCA(gw23_pv)
+gw23_pv = FindNeighbors(gw23_pv, dims=1:10)
+gw23_pv = RunUMAP(gw23_pv, dims=1:10)
+gw23_pv = FindClusters(gw23_pv, algorithm = 2, resolution = .3)
+gw16 = readRDS("/media/chang/HDD-3/chang/GW16.rds")
 
 cs22 = readRDS('/media/chang/HDD-3/chang/CS22_Medial.rds')
 
@@ -592,29 +621,6 @@ gw21_labelled = reset_clusters(gw21_labelled)
 gw21_2_labelled = reset_clusters(gw21_2_labelled)
 
 
-cs22_labelled <- BuildNicheAssay(cs22_labelled, fov="CS22.Medial", group.by = "predicted.celltype",
-    niches.k = 5, neighbors.k = 20)
-ImageDimPlot(cs22_labelled, group.by = "niches", size = 1.5, dark.background = F,
-             cols =dittoColors()) + ggtitle("Niches")
-
-cs22_labelled$niches[cs22_labelled$niches == 1] = "GZ"
-cs22_labelled$niches[cs22_labelled$niches == 4] = "MZ"
-cs22_labelled$niches[cs22_labelled$niches == 3] = "Telencephalon"
-cs22_labelled$niches[cs22_labelled$niches == 2] = "MZ"
-cs22_labelled$niches[cs22_labelled$niches == 5] = "GZ"
-
-pdf('/media/chang/HDD-3/chang/dapi/first_mantle.pdf')
-ImageDimPlot(cs22_labelled, group.by = "predicted.celltype", size = 1.5, dark.background = F,
-             cols =dittoColors()) + ggtitle("Cell types")
-ImageDimPlot(cs22_labelled, group.by = "niches", size = 1.5, dark.background = F,
-             cols =dittoColors()) + ggtitle("Niches")
-dev.off()
-pdf('/media/chang/HDD-3/chang/dapi/first_bar.pdf', width = 5)
-dittoBarPlot(cs22_labelled, group.by = 'niches', var='predicted.celltype')
-dev.off()
-
-p1 = ImageDimPlot(cs22_labelled, size = .5, group.by = 'predicted.celltype', 
-                  cols=dittoColors(), dark.background = F, axes = T)
 cells = CellSelector(p1)
 
 cs22_labelled$index = c(1:dim(cs22_labelled)[2])
@@ -788,7 +794,7 @@ ImageFeaturePlot(cs22, max.cutoff = 'q90',
 p1 = ImageDimPlot(cs22_labelled, group.by = "predicted.celltype", size = 1, cols = dittoColors(), 
              dark.background = F) + ggtitle("Cell type")
 p2 = ImageDimPlot(cs22, molecules = c("TCF7L2", "FOXG1", "EYA2", "OLIG3","GBX2"),
-             nmols = 2000,cols = "grey", group.by = "orig.ident",
+             nmols = 2000,cols = "grey", group.by = "class",
              dark.background = F, size = .5)
 p3 = ImageDimPlot(cs22_labelled, group.by = "niches", size = 1, dark.background = F,
              cols =dittoColors()) + ggtitle("Niches")
@@ -842,15 +848,14 @@ gw23_m2$clusters[gw23_m2$clusters == 13] = "EP"
 gw23_m2$clusters[gw23_m2$clusters == 8] = "AC1" 
 gw23_m2$clusters[gw23_m2$clusters == 0] = "GL" 
 gw23_m2$clusters[gw23_m2$clusters == 11] = "DIV" 
+Idents(gw23_m2) = gw23_m2$clusters
+cells =  WhichCells(gw23_m2, expression = FOXJ1 == 0, 
+                    idents = c("EP")) 
+gw23_m2$clusters[cells] = "AC2"
 
-Idents(gw23_m2) = gw23_m2$clusters
-DefaultAssay(gw23_m2)="Vizgen"
-gw23_m2 = NormalizeData(gw23_m2)
-cells = WhichCells(gw23_m2, expression = PENK > 2, idents = "EN1")
-gw23_m2$clusters[cells] = "EN3"
-gw23_m2$clusters = as.factor(gw23_m2$clusters)
 gw23_m2$clusters = as.factor(gw23_m2$clusters)
 Idents(gw23_m2) = gw23_m2$clusters
+
 DimPlot(gw23_m2, group.by = 'clusters', label=T)
 saveRDS(gw23_m2, file='/media/chang/HDD-3/chang/gw23_m2.rds')
 
@@ -899,7 +904,6 @@ gw23_l1$clusters[gw23_l1$clusters == 2] = "EN2" #CRTAC1
 gw23_l1$clusters[gw23_l1$clusters == 0] = "EN2" #CRTAC1
 gw23_l1$clusters[gw23_l1$clusters == 3] = "EN1" #CBLN2
 gw23_l1$clusters[gw23_l1$clusters == 15] = "EN1" #CBLN2
-gw23_l1$clusters[gw23_l1$SCT_snn_res.0.4 == 18] = "EN3" #PENK
 gw23_l1$clusters[gw23_l1$clusters == 12] = "IN1"
 gw23_l1$clusters[gw23_l1$clusters == 13] = "IN6"
 gw23_l1$clusters[gw23_l1$clusters == 8] = "IN6"
@@ -912,6 +916,11 @@ gw23_l1$clusters[gw23_l1$clusters == 7] = "FB"
 gw23_l1$clusters[gw23_l1$clusters == 10] = "EP"
 gw23_l1$clusters[gw23_l1$clusters == 1] = "AC1"
 gw23_l1$clusters[gw23_l1$clusters == 14] = "DIV"
+gw23_l1$clusters[gw23_l1$SCT_snn_res.0.4 == 0] = "EN1"
+Idents(gw23_l1) = gw23_l1$clusters
+cells =  WhichCells(gw23_l1, expression = FOXJ1 == 0, 
+                    idents = c("EP")) 
+gw23_l1$clusters[cells] = "AC2"
 
 gw23_l1$clusters = as.factor(gw23_l1$clusters)
 Idents(gw23_l1) = gw23_l1$clusters
@@ -962,8 +971,8 @@ FeaturePlot(gw23_l3, features = c("CRTAC1","CBLN2","CRABP1","DLX5","SOX14","HES1
 
 gw23_l3$clusters=as.character(gw23_l3$SCT_snn_res.0.4)
 gw23_l3$clusters[gw23_l3$clusters == 1] = "EN2" #CRTAC1
-gw23_l3$clusters[gw23_l3$clusters == 3] = "EN2" #CRTAC1
-gw23_l3$clusters[gw23_l3$clusters == 7] = "EN1" #CBLN2
+gw23_l3$clusters[gw23_l3$clusters == 3] = "EN1" #CBLN2
+gw23_l3$clusters[gw23_l3$clusters == 7] = "EN3" #MB
 gw23_l3$clusters[gw23_l3$clusters == 2] = "OPC" 
 gw23_l3$clusters[gw23_l3$clusters == 17] = "OL" 
 gw23_l3$clusters[gw23_l3$clusters == 0] = "AC1" 
@@ -985,16 +994,11 @@ Idents(gw23_l3) = gw23_l3$clusters
 
 DefaultAssay(gw23_l3)="Vizgen"
 gw23_l3 = NormalizeData(gw23_l3)
-
-cells = WhichCells(gw23_l3, expression = PENK > 2, idents = "IN2")
-gw23_l3$clusters[cells] = "EN3"
-cells = WhichCells(gw23_l3, expression = PENK > 2, idents = "EN1")
-gw23_l3$clusters[cells] = "EN3"
-cells = WhichCells(gw23_l3, expression = PENK > 2, idents = "IN2")
-gw23_l3$clusters[cells] = "EN3"
-
 cells = WhichCells(gw23_l3, expression = CRABP1 > 2, idents = "IN2")
 gw23_l3$clusters[cells] = "IN5"
+cells =  WhichCells(gw23_l3, expression = FOXJ1 == 0, 
+                    idents = c("EP")) 
+gw23_l3$clusters[cells] = "AC2"
 
 gw23_l3$clusters = as.factor(gw23_l3$clusters)
 Idents(gw23_l3) = gw23_l3$clusters
@@ -1048,7 +1052,7 @@ DimPlot(gw21, group.by = 'SCT_snn_res.0.3', cols="polychrome",label=T)
 gw21$clusters=as.character(gw21$SCT_snn_res.0.3)
 gw21$clusters[gw21$clusters == 1] = "EN2" #CRTAC1
 gw21$clusters[gw21$clusters == 0] = "EN1" #CBLN2
-gw21$clusters[gw21$clusters == 7] = "EN3" #PENK
+gw21$clusters[gw21$clusters == 7] = "EN1" 
 gw21$clusters[gw21$clusters == 3] = "IN1" 
 gw21$clusters[gw21$clusters == 4] = "IN1" 
 gw21$clusters[gw21$clusters == 8] = "IN2" 
@@ -1062,12 +1066,16 @@ gw21$clusters[gw21$clusters == 12] = "EC"
 gw21$clusters[gw21$clusters == 11] = "FB" 
 gw21$clusters[gw21$clusters == 2] = "AC1" 
 gw21$clusters[gw21$clusters == 5] = "EP" 
+gw21$clusters[gw21$SCT_snn_res.0.4 == 6] = "EN2" 
 
 Idents(gw21) = gw21$clusters
 DefaultAssay(gw21)="Vizgen"
 gw21 = NormalizeData(gw21)
 cells = WhichCells(gw21, expression = CRABP1 > 2, idents = "IN2")
 gw21$clusters[cells] = "IN5"
+cells =  WhichCells(gw21, expression = FOXJ1 == 0, 
+                    idents = c("EP")) 
+gw21$clusters[cells] = "AC2"
 gw21$clusters = as.factor(gw21$clusters)
 Idents(gw21) = gw21$clusters
 
@@ -1075,23 +1083,6 @@ DimPlot(gw21, group.by = 'clusters', label=T)
 
 saveRDS(gw21, file='/media/chang/HDD-3/chang/gw21.rds')
 
-gw21_labelled$Area = "MB"
-gw21_labelled$index = c(1:dim(gw21_labelled)[2])
-p1 = ImageDimPlot(gw21_labelled, dark.background = F, 
-                  group.by = "predicted.celltype")
-
-cells = CellSelector(p1)
-
-gw21_labelled$Area[gw21_labelled$index %in% cells] = "Pulvinar"
-gw21_labelled$Area[gw21_labelled$index %in% cells] = "CMN"
-gw21_labelled$Area[gw21_labelled$index %in% cells] = "DMN"
-gw21_labelled$Area[gw21_labelled$index %in% cells] = "DLN"
-gw21_labelled$Area[gw21_labelled$index %in% cells] = "AVN"
-gw21_labelled$Area[gw21_labelled$index %in% cells] = "ZI"
-
-ImageDimPlot(gw21_labelled, group.by = "Area", cols=dittoColors())
-
-saveRDS(gw21_labelled, file='/media/chang/HDD-3/chang/gw21_labelled.rds')
 
 gw23_vm = FindClusters(gw23_vm, algorithm = 2, resolution = .3)
 DimPlot(gw23_vm, group.by = 'SCT_snn_res.0.3', label=T)
@@ -1114,14 +1105,12 @@ gw23_vm$clusters[gw23_vm$clusters == 15] = "MG"
 gw23_vm$clusters[gw23_vm$clusters == 12] = "MG"
 gw23_vm$clusters[gw23_vm$clusters == 14] = "IN1"
 gw23_vm$clusters[gw23_vm$clusters == 11] = "IN1"
-
 Idents(gw23_vm) = gw23_vm$clusters
-DefaultAssay(gw23_vm) = 'Vizgen'
-gw23_vm = NormalizeData(gw23_vm)
-cells = WhichCells(gw23_vm, expression = PENK > 2, idents = "EN1")
-gw23_vm$clusters[cells] = "EN3"
-cells = WhichCells(gw23_vm, expression = PENK > 2, idents = "EN2")
-gw23_vm$clusters[cells] = "EN3"
+
+cells =  WhichCells(gw23_vm, expression = FOXJ1 == 0, 
+                    idents = c("EP")) 
+gw23_vm$clusters[cells] = "AC2"
+
 gw23_vm$clusters = as.factor(gw23_vm$clusters)
 Idents(gw23_vm) = gw23_vm$clusters
 
@@ -1144,84 +1133,6 @@ cells = CellSelector(p1)
 ImageDimPlot(gw23_vm_labelled, group.by = "Area", cols=dittoColors())
 
 saveRDS(gw23_vm_labelled, file='/media/chang/HDD-3/chang/gw23_vm_labelled.rds')
-
-
-
-
-Idents(gw21_2_labelled) = gw21_2_labelled$predicted.celltype
-gw21_2_labelled$Area = "MB"
-gw21_2_labelled$index = c(1:dim(gw21_2_labelled)[2])
-p1 = ImageDimPlot(gw21_2_labelled, dark.background = F, 
-                  group.by = "predicted.celltype")
-
-cells = CellSelector(p1)
-
-gw21_2_labelled$Area[gw21_2_labelled$index %in% cells] = "Pulvinar"
-gw21_2_labelled$Area[gw21_2_labelled$index %in% cells] = "CMN"
-gw21_2_labelled$Area[gw21_2_labelled$index %in% cells] = "MD"
-gw21_2_labelled$Area[gw21_2_labelled$index %in% cells] = "LD"
-gw21_2_labelled$Area[gw21_2_labelled$index %in% cells] = "VA"
-gw21_2_labelled$Area[gw21_2_labelled$index %in% cells] = "ZI"
-
-ImageDimPlot(gw21_2_labelled, group.by = "Area", cols=dittoColors())
-
-saveRDS(gw21_2_labelled, file='/media/chang/HDD-3/chang/gw21_2_labelled.rds')
-
-gw16_lgn = FindClusters(gw16_lgn, algorithm = 2, resolution = .4)
-
-DimPlot(gw16_lgn, group.by = 'SCT_snn_res.0.3', label=T)
-
-gw16_lgn$clusters=as.character(gw16_lgn$SCT_snn_res.0.3)
-gw16_lgn$clusters[gw16_lgn$clusters == 6] = "EN2" #CRTAC1
-gw16_lgn$clusters[gw16_lgn$clusters == 2] = "EN1" #CBLN2
-
-gw16_lgn$clusters = as.factor(gw16_lgn$clusters)
-Idents(gw16_lgn) = gw16_lgn$clusters
-DimPlot(gw16_lgn, group.by = 'clusters', label=T)
-
-ImageDimPlot(gw16_lgn, size=1, cols='polychrome', split.by = "clusters")
-
-saveRDS(gw16_lgn, file='/media/chang/HDD-3/chang/gw16_lgn.rds')
-
-
-DimPlot(gw19, group.by = 'SCT_snn_res.0.4', label=T)
-FeaturePlot(gw19, features = c("CRTAC1","CBLN2","CRABP1","CLMP","SOX14","HES1","SOX14","SPARCL1","FOXJ1",
-                                  "MKI67","SPP1","CLDN5","GAD1"), order=T, max.cutoff = 'q99') & NoAxes()
-
-gw19$clusters=as.character(gw19$SCT_snn_res.0.4)
-gw19$clusters[gw19$clusters == 6] = "EN1" #CBLN2
-gw19$clusters[gw19$clusters == 7] = "EN2" #CRTAC1
-gw19$clusters[gw19$clusters == 3] = "EN2" #CRTAC1
-gw19$clusters[gw19$clusters == 17] = "EN2" 
-gw19$clusters[gw19$clusters == 15] = "MG"
-gw19$clusters[gw19$clusters == 11] = "MG" 
-gw19$clusters[gw19$clusters == 9] = "IN5" 
-gw19$clusters[gw19$clusters == 19] = "EN2" 
-gw19$clusters[gw19$clusters == 14] = "EN2" 
-gw19$clusters[gw19$clusters == 10] = "EC" 
-gw19$clusters[gw19$clusters == 13] = "IN2" 
-gw19$clusters[gw19$clusters == 2] = "EP" 
-gw19$clusters[gw19$clusters == 1] = "AC1" 
-gw19$clusters[gw19$clusters == 12] = "MG" 
-gw19$clusters[gw19$clusters == 16] = "EN2" 
-gw19$clusters[gw19$clusters == 8] = "IN6" 
-gw19$clusters[gw19$clusters == 4] = "IN6" 
-gw19$clusters[gw19$clusters == 18] = "IN6" 
-gw19$clusters[gw19$clusters == 0] = "IN2" 
-gw19$clusters[gw19$clusters == 5] = "IN1" 
-gw19$clusters[gw19$clusters == 20] = "IN6" 
-
-cells =  WhichCells(gw19, expression = SLC17A6 > 1) 
-cells =  WhichCells(gw19, expression = RNF220 > 1) 
-
-gw19$clusters[cells] = "EN2"
-gw19$clusters[gw19$SCT_snn_res.0.4 == 6] = "EN1" #CBLN2
-gw19$clusters = as.factor(gw19$clusters)
-Idents(gw19) = gw19$clusters
-
-DimPlot(gw19, group.by = 'clusters', label=T)
-
-saveRDS(gw19, file='/media/chang/HDD-3/chang/gw19.rds')
 
 
 
@@ -1249,7 +1160,7 @@ gw16_lgn$clusters[gw16_lgn$clusters == 8] = "AC1"
 gw16_lgn$clusters[gw16_lgn$clusters == 1] = "EP" 
 gw16_lgn$clusters[gw16_lgn$clusters == 19] = "IN4" 
 gw16_lgn$clusters[gw16_lgn$clusters == 6] = "IN4" 
-gw16_lgn$clusters[gw16_lgn$clusters == 18] = "EN3" 
+gw16_lgn$clusters[gw16_lgn$clusters == 18] = "IN6" 
 gw16_lgn$clusters[gw16_lgn$clusters == 2] = "IN2" 
 gw16_lgn$clusters[gw16_lgn$clusters == 3] = "IN2" 
 gw16_lgn$clusters[gw16_lgn$clusters == 17] = "PC" 
@@ -1262,6 +1173,9 @@ gw16_lgn$clusters[cells] = "IN3"
 cells =  WhichCells(gw16_lgn, expression = CBLN2 > 1, 
                     idents = c("EN2")) 
 gw16_lgn$clusters[cells] = "EN1"
+cells =  WhichCells(gw16_lgn, expression = FOXJ1 == 0, 
+                    idents = c("EP")) 
+gw16_lgn$clusters[cells] = "AC2"
 
 gw16_lgn$clusters = as.factor(gw16_lgn$clusters)
 Idents(gw16_lgn)=gw16_lgn$clusters
@@ -1287,8 +1201,10 @@ test = wilcoxauc(gw23_l2, seurat_assay = 'SCT')
 
 gw23_l2$clusters=as.character(gw23_l2$SCT_snn_res.0.4)
 gw23_l2$clusters[gw23_l2$clusters == 1] = "EN2" #CRTAC1
-gw23_l2$clusters[gw23_l2$clusters == 2] = "EN2" #CRTAC1
-gw23_l2$clusters[gw23_l2$clusters == 7] = "EN2" #CRTAC1
+gw23_l2$clusters[gw23_l2$clusters == 2] = "EN1" 
+gw23_l2$clusters[gw23_l2$clusters == 21] = "EN2"
+gw23_l2$clusters[gw23_l2$clusters == 20] = "EN1"
+gw23_l2$clusters[gw23_l2$clusters == 7] = "EN1"
 gw23_l2$clusters[gw23_l2$clusters == 18] = "IN5"
 gw23_l2$clusters[gw23_l2$clusters == 12] = "IN1"
 gw23_l2$clusters[gw23_l2$clusters == 4] = "IN1"
@@ -1306,20 +1222,8 @@ gw23_l2$clusters[gw23_l2$clusters == 16] = "EC"
 gw23_l2$clusters[gw23_l2$clusters == 10] = "PC"
 gw23_l2$clusters[gw23_l2$clusters == 5] = "OPC"
 gw23_l2$clusters[gw23_l2$clusters == 13] = "OL"
-gw23_l2$clusters[gw23_l2$clusters == 21] = "EN1"
-gw23_l2$clusters[gw23_l2$clusters == 20] = "EN2"
 
 #DimPlot(gw23_l2, group.by = 'clusters', cols=dittoColors(), label=T) + NoAxes()
-
-Idents(gw23_l2)=gw23_l2$clusters
-
-cells =  WhichCells(gw23_l2, expression = PENK > 1, 
-                    idents = c("EN2")) 
-gw23_l2$clusters[cells] = "EN3"
-
-cells =  WhichCells(gw23_l2, expression = CBLN2 > 1, 
-                    idents = c("EN2")) 
-gw23_l2$clusters[cells] = "EN1"
 
 gw23_l2$clusters = as.factor(gw23_l2$clusters)
 Idents(gw23_l2)=gw23_l2$clusters
@@ -1330,6 +1234,119 @@ ImageDimPlot(gw23_l2,  col=dittoColors(), split.by='clusters',
 
 saveRDS(gw23_l2, file='/media/chang/HDD-3/chang/gw23_l2.rds')
 
+
+
+cs22 = FindClusters(cs22, algorithm = 2, resolution = .4)
+
+DimPlot(cs22, group.by = 'SCT_snn_res.0.4', label=T, cols=dittoColors()) + NoAxes()
+FeaturePlot(cs22, features = c("CRTAC1","CBLN2","CRABP1","SIX3","SOX14","HES1","SOX14","SLC17A6","FOXJ1",
+                                  "MKI67","SOX2","FOXG1","SST"), order=T, 
+            max.cutoff = 'q99') & NoAxes()
+
+test = wilcoxauc(cs22, seurat_assay = 'SCT')
+
+cs22$clusters=as.character(cs22$SCT_snn_res.0.4)
+cs22$clusters[cs22$clusters == 0] = "EN1" #CRTAC1
+cs22$clusters[cs22$clusters == 8] = "EN1" #CBLN2
+cs22$clusters[cs22$clusters == 10] = "IN3" 
+cs22$clusters[cs22$clusters == 4] = "RG" 
+cs22$clusters[cs22$clusters == 6] = "IPC" 
+cs22$clusters[cs22$clusters == 3] = "MGE_EN" 
+cs22$clusters[cs22$clusters == 7] = "MGE_RG" 
+cs22$clusters[cs22$clusters == 1] = "MGE_IN1" 
+cs22$clusters[cs22$clusters == 2] = "MGE_IN2" 
+cs22$clusters[cs22$clusters == 5] = "MGE_IN3" 
+cs22$clusters[cs22$clusters == 9] = "MGE_IN4" 
+cs22$clusters[cs22$clusters == 11] = "EC" 
+
+cs22$class = cs22$clusters
+cs22$class[grepl("MGE", cs22$clusters)] = "MGE"
+cs22$class[grepl("EN2", cs22$clusters)] = "EN1"
+cs22$class[grepl("EC", cs22$clusters)] = "MGE"
+cs22$clusters = as.factor(cs22$clusters)
+cs22$class = as.factor(cs22$class)
+
+Idents(cs22) = cs22$clusters
+
+DimPlot(cs22, group.by = 'clusters', label=T, cols=dittoColors()) + NoAxes()
+
+
+cs22_2 = subset(cs22, cells=cs22[["CS22.Medial"]]@boundaries$centroids@cells)
+cs22_2 = BuildNicheAssay(object = cs22_2, group.by = "class", fov="CS22.Medial",
+    niches.k = 3, neighbors.k = 20)
+dittoBarPlot(cs22_2, group.by = 'niches', var='class')
+ImageDimPlot(cs22_2, group.by = "niches", size = 1, dark.background = F,
+             cols =dittoColors())
+
+cs22_2$niches = as.character(cs22_2$niches)
+cs22_2$niches[cs22_2$niches == 1] = "GZ"
+cs22_2$niches[cs22_2$niches == 2] = "MGE"
+cs22_2$niches[cs22_2$niches == 3] = "MZ"
+cs22_2$niches = as.factor(cs22_2$niches)
+pdf('/media/chang/HDD-3/chang/dapi/first_mantle.pdf')
+ImageDimPlot(cs22_2, group.by = "niches", size = 1.5, dark.background = F,
+             cols =dittoColors()[13:15]) 
+dev.off()
+pdf('/media/chang/HDD-3/chang/dapi/first_new.pdf')
+ImageDimPlot(cs22,  col=c(dittoColors()[1:3], "grey", dittoColors()[5]), 
+             group.by='class',dark.background = F, size=1.5)
+dev.off()
+pdf('/media/chang/HDD-3/chang/dapi/first_bar.pdf', width = 3, height = 3)
+dittoBarPlot(cs22_2, group.by = 'niches', var='class',
+              color.panel = c(dittoColors()[1:3], "grey", dittoColors()[5]))
+dev.off()
+
+p1 = ImageDimPlot(cs22_labelled, size = .5, group.by = 'predicted.celltype', 
+                  cols=dittoColors(), dark.background = F, axes = T)
+
+saveRDS(cs22, file='/media/chang/HDD-3/chang/cs22.rds')
+saveRDS(cs22_2, file='/media/chang/HDD-3/chang/cs22_2.rds')
+
+
+
+
+DimPlot(gw23_pv, group.by = 'SCT_snn_res.0.4', label=T, cols=dittoColors())
+markers = wilcoxauc(gw23_pv, group_by = "SCT_snn_res.0.4", seurat_assay = 'SCT')
+FeaturePlot(gw23_pv, features = c("CRTAC1","CBLN2","CRABP1","CLMP","SOX14","HES1","SOX14","SPARCL1","FOXJ1",
+                                  "MKI67","SPP1","HIGD1B","GAD1"), order=T, 
+            max.cutoff = 'q99') & NoAxes()
+ImageDimPlot(gw23_pv, cols=dittoColors())
+ImageFeaturePlot(gw23_pv, features = c("CRABP1","LHX1","GAD1","TCF7L2","SOX14",
+                                       "SLC17A6","EN1","POU4F1","BCL11B"), 
+                 dark.background = F, max.cutoff = 'q95')
+
+gw23_pv$clusters=as.character(gw23_pv$SCT_snn_res.0.4)
+gw23_pv$clusters[gw23_pv$clusters == 20] = "EN3" #CBLN2 
+gw23_pv$clusters[gw23_pv$clusters == 6] = "EN3" #CBLN2 
+gw23_pv$clusters[gw23_pv$clusters == 0] = "EN2" #CRTAC1
+gw23_pv$clusters[gw23_pv$clusters == 16] = "EN2" #CRTAC1
+gw23_pv$clusters[gw23_pv$clusters == 5] = "EN1" 
+gw23_pv$clusters[gw23_pv$clusters == 11] = "EC" 
+gw23_pv$clusters[gw23_pv$clusters == 14] = "EC" 
+gw23_pv$clusters[gw23_pv$clusters == 15] = "PC" 
+gw23_pv$clusters[gw23_pv$clusters == 18] = "MG" 
+gw23_pv$clusters[gw23_pv$clusters == 13] = "MG" 
+gw23_pv$clusters[gw23_pv$clusters == 1] = "IN1" 
+gw23_pv$clusters[gw23_pv$clusters == 19] = "EP" 
+gw23_pv$clusters[gw23_pv$clusters == 7] = "EP" 
+gw23_pv$clusters[gw23_pv$clusters == 3] = "OPC" 
+gw23_pv$clusters[gw23_pv$clusters == 12] = "IN4" # SST
+gw23_pv$clusters[gw23_pv$clusters == 10] = "IN5" 
+gw23_pv$clusters[gw23_pv$clusters == 8] = "IN1" 
+gw23_pv$clusters[gw23_pv$clusters == 17] = "AC2"
+gw23_pv$clusters[gw23_pv$clusters == 9] = "AC2"
+gw23_pv$clusters[gw23_pv$clusters == 2] = "AC1"
+gw23_pv$clusters[gw23_pv$clusters == 4] = "AC1"
+
+gw23_pv$clusters = as.factor(gw23_pv$clusters)
+Idents(gw23_pv)=gw23_pv$clusters
+
+saveRDS(gw23_pv, file='/media/chang/HDD-3/chang/gw23_pv.rds')
+
+DimPlot(gw23_pv, group.by = 'clusters', cols=dittoColors(), label=T) + NoAxes()
+
+ImageDimPlot(gw23_pv,  col=dittoColors(), split.by='clusters',
+             dark.background = F)
 ```
 
 ```{r}
@@ -1397,6 +1414,156 @@ Idents(gw23_m2) = gw23_m2$class
 Idents(gw19) = gw19$class
 Idents(gw16_lgn) = gw16_lgn$class
 gw23_l2 = classify(gw23_l2)
+gw23_pv = classify(gw23_pv)
+
+pdf('/media/chang/HDD-3/chang/dapi/new_glia.pdf', width=10)
+ImageDimPlot(subset(gw23_l1, idents=c("Glia")),split.by = 'class', 
+             group.by = "clusters", cols=dittoColors(),
+             dark.background = F, size = 2)
+ImageDimPlot(subset(gw23_l3, idents=c("Glia")),split.by = 'class', 
+             group.by = "clusters", cols=c(dittoColors()[1:7],"#007756","#666666"),
+             dark.background = F, size = 1)
+ImageDimPlot(subset(gw21, idents=c("Glia")),split.by = 'class', 
+             group.by = "clusters", cols=c(dittoColors()[1:2],"#F0E442","#0072B2",
+                                           "#D55E00","#CC79A7","#666666"),
+             dark.background = F, size = 1)
+ImageDimPlot(subset(gw23_m2, idents=c("Glia")),split.by = 'class', 
+             group.by = "clusters", cols=c(dittoColors()[1:6],"#1C91D4","#CC79A7",
+                                           "#666666"),
+             dark.background = F, size = 1)
+ImageDimPlot(subset(gw23_vm, idents=c("Glia")),split.by = 'class', 
+             group.by = "clusters", cols=c(dittoColors()[1:2],"#F0E442","#0072B2",
+                                           "#D55E00","#1C91D4","#CC79A7","#666666"),
+             dark.background = F, size = 2)
+ImageDimPlot(subset(gw16_lgn, idents=c("Glia")),split.by = 'class', 
+             group.by = "clusters", cols=dittoColors(),
+             dark.background = F, size = 1)
+dev.off()
+
+pdf("/media/chang/HDD-3/chang/dapi/glia_bar.pdf", width = 6)
+  dittoBarPlot(subset(gw23_l1, idents=c("Glia")), group.by = "orig.ident",
+             var='clusters')+
+  dittoBarPlot(subset(gw23_l3, idents=c("Glia")), group.by = "orig.ident",
+             var='clusters',color.panel =c(dittoColors()[1:7],"#007756","#666666"))+
+  dittoBarPlot(subset(gw21, idents=c("Glia")), group.by = "orig.ident",
+             var='clusters',color.panel=c(dittoColors()[1:2],"#F0E442","#0072B2",
+                                           "#D55E00","#CC79A7","#666666"))+
+  dittoBarPlot(subset(gw23_m2, idents=c("Glia")), group.by = "orig.ident",
+             var='clusters', color.panel = c(dittoColors()[1:6],"#1C91D4","#CC79A7",
+                                           "#666666"))+
+  dittoBarPlot(subset(gw23_vm, idents=c("Glia")), group.by = "orig.ident",
+             var='clusters',
+             color.panel =c(dittoColors()[1:2],"#F0E442","#0072B2",
+                                           "#D55E00","#1C91D4","#CC79A7","#666666"))+
+  dittoBarPlot(subset(gw16_lgn, idents=c("Glia")), group.by = "orig.ident",
+             var='clusters')
+dev.off()
+
+test = merge(gw23_m2,gw23_vm)
+pdf("/media/chang/HDD-3/chang/dapi/vln_glia.pdf", height = 6, width = 8)
+VlnPlot(subset(test, idents=c("Glia")), features = c("SOX2","LGR6","FOXJ1","PDGFRA",
+                                                     "SPARCL1","MKI67"), 
+            ncol=3, pt.size = 0, group.by = 'clusters',
+        cols = c(dittoColors()[1:6],"#1C91D4","#CC79A7", "#666666"))
+dev.off()
+rm(test);gc();
+
+pdf('/media/chang/HDD-3/chang/dapi/gw23_pv.pdf', width = 10)
+ImageDimPlot(subset(gw23_pv, idents=c("EN")),split.by = 'class', 
+             group.by = "clusters",cols=dittoColors(), 
+             dark.background = F, size = 1)
+ImageDimPlot(subset(gw23_pv, idents=c("IN")),split.by = 'class', 
+             group.by = "clusters",cols=c("#E69F00", "#F0E442","#009E73"), 
+             dark.background = F, size = 1)
+ImageDimPlot(subset(gw23_pv, idents=c("Glia")),split.by = 'class', 
+             group.by = "clusters",cols=c("#E69F00","#007756","#56B4E9","#009E73", 
+                                          "#0072B2",  "#D55E00","#F0E442"), 
+             dark.background = F, size = 1)
+dev.off()
+pdf('/media/chang/HDD-3/chang/dapi/gw23_pv_en.pdf', width = 10)
+ImageFeaturePlot(subset(gw23_pv, idents=c("EN")), features = "CRTAC1", size = 1,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_pv, idents=c("EN")), features = "CALB2", size = 1,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_pv, idents=c("EN")), features = "NTS", size = 1,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_pv, idents=c("EN")), features = "FOXP2", size =1,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_pv, idents=c("EN")), features = "SOX2", size = 1,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_pv, idents=c("EN")), features = "PENK", size = 1,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_pv, idents=c("EN")), features = "BCL11B", size =1,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_pv, idents=c("EN")), features = "SLC17A6", size = 1,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_pv, idents=c("EN")), features = "PROX1", size = 1,
+                 max.cutoff = 'q95',dark.background = F)
+dev.off()
+pdf('/media/chang/HDD-3/chang/dapi/gw23_pv_glia.pdf', width = 10)
+ImageFeaturePlot(subset(gw23_pv, idents=c("Glia")), features = "LGR6", size = 1,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_pv, idents=c("Glia")), features = "FOXJ1", size = 1,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_pv, idents=c("Glia")), features = "PDGFRA", size = 1,
+                 max.cutoff = 'q95',dark.background = F)
+dev.off()
+pdf('/media/chang/HDD-3/chang/dapi/gw23_pv_in.pdf', width = 10)
+ImageFeaturePlot(subset(gw23_pv, idents=c("IN")), features = "GAD1", size = 1,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_pv, idents=c("IN")), features = "POU4F1", size = 1,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_pv, idents=c("IN")), features = "FOXG1", size = 1,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_pv, idents=c("IN")), features = "SOX14", size = 1,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_pv, idents=c("IN")), features = "CRABP1", size = 1,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_pv, idents=c("IN")), features = "SST", size = 1,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_pv, idents=c("IN")), features = "LHX1", size = 1,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_pv, idents=c("IN")), features = "EBF", size = 1,
+                 max.cutoff = 'q95',dark.background = F)
+dev.off()
+
+pdf('/media/chang/HDD-3/chang/dapi/first_new.pdf')
+ImageDimPlot(cs22, group.by = "class",cols=c(dittoColors()[1:5],'grey',dittoColors()[6]), 
+             dark.background = F, size = 1)
+dev.off()
+pdf('/media/chang/HDD-3/chang/dapi/first_new_sm.pdf')
+ImageDimPlot(cs22, molecules = c("LHX9", "FOXG1", "SOX14","OLIG3","GBX2"),
+             nmols = 10000,cols = 'grey',
+             group.by = "orig.ident", dark.background = F, size = .5, 
+             mols.cols = dittoColors()[7:10])
+dev.off()
+pdf('/media/chang/HDD-3/chang/dapi/first_david.pdf')
+ImageDimPlot(cs22, molecules = c("LHX9"),
+             nmols = 10000,cols = 'grey',
+             group.by = "orig.ident", dark.background = F, size = .5, 
+             mols.cols = dittoColors()[7])
+ImageDimPlot(cs22, molecules = c("FOXG1"),
+             nmols = 10000,cols = 'grey',
+             group.by = "orig.ident", dark.background = F, size = .5, 
+             mols.cols = dittoColors()[8])
+ImageDimPlot(cs22, molecules = c("SOX14"),
+             nmols = 10000,cols = 'grey',
+             group.by = "orig.ident", dark.background = F, size = .5, 
+             mols.cols = dittoColors()[9])
+ImageDimPlot(cs22, molecules = c("OLIG3"),
+             nmols = 10000,cols = 'grey',
+             group.by = "orig.ident", dark.background = F, size = .5, 
+             mols.cols = dittoColors()[10])
+ImageDimPlot(cs22, molecules = c("GBX2"),
+             nmols = 10000,cols = 'grey',
+             group.by = "orig.ident", dark.background = F, size = .5, 
+             mols.cols = dittoColors()[7:10])
+ImageDimPlot(cs22, molecules = c("TCF7L2"),
+             nmols = 10000,cols = 'grey',
+             group.by = "orig.ident", dark.background = F, size = .5, 
+             mols.cols = dittoColors()[11])
+dev.off()
+
 
 pdf('/media/chang/HDD-3/chang/dapi/new_en.pdf', width = 10)
 ImageDimPlot(subset(gw21, idents=c("EN")),split.by = 'class', 
@@ -1414,8 +1581,6 @@ ImageDimPlot(subset(gw23_m2, idents=c("EN")),split.by = 'class',
 ImageDimPlot(subset(gw23_vm, idents=c("EN")),split.by = 'class', 
              group.by = "clusters",cols=dittoColors(), 
              dark.background = F, size = 1)
-dev.off()
-pdf('/media/chang/HDD-3/chang/dapi/gw16_en.pdf', width = 10)
 ImageDimPlot(subset(gw16_lgn, idents=c("EN")),split.by = 'class', 
              group.by = "clusters",cols=dittoColors(), 
              dark.background = F, size = 2)
@@ -1428,14 +1593,56 @@ ImageDimPlot(subset(gw23_l2, idents=c("EN")),split.by = 'class',
 dev.off()
 pdf('/media/chang/HDD-3/chang/dapi/gw23_l2_in.pdf', width = 10)
 ImageDimPlot(subset(gw23_l2, idents=c("IN")),split.by = 'class', 
-             group.by = "clusters",cols=c("#E69F00","#F0E442","#0072B2"),
+             group.by = "clusters",cols=dittoColors()[3:5],
              dark.background = F, size = 2)
 dev.off()
 pdf('/media/chang/HDD-3/chang/dapi/gw23_l2_gl.pdf', width = 10)
 ImageDimPlot(subset(gw23_l2, idents=c("Glia")),split.by = 'class', 
+             group.by = "clusters",cols=dittoColors()[6:15],
+             dark.background = F, size = 1.5)
+dev.off()
+pdf('/media/chang/HDD-3/chang/dapi/gw23_l2_feats.pdf', width = 10)
+ImageFeaturePlot(subset(gw23_l2, idents=c("Glia")), features = c("FOXJ1"), 
+                 max.cutoff = 'q95', dark.background = F, size = 1.5)
+ImageFeaturePlot(subset(gw23_l2, idents=c("Glia")), features = c("SPARCL1"), 
+                 max.cutoff = 'q95', dark.background = F, size = 1.5)
+ImageFeaturePlot(subset(gw23_l2, idents=c("Glia")), features = c("LGR6"), 
+                 max.cutoff = 'q95', dark.background = F, size = 1.5)
+ImageFeaturePlot(subset(gw23_l2, idents=c("IN")), features = c("SOX14"), 
+                 max.cutoff = 'q95', dark.background = F, size = 1.5)
+ImageFeaturePlot(subset(gw23_l2, idents=c("IN")), features = c("CRABP1"), 
+                 max.cutoff = 'q95', dark.background = F, size = 1.5)
+ImageFeaturePlot(subset(gw23_l2, idents=c("IN")), features = c("SST"), 
+                 max.cutoff = 'q95', dark.background = F, size = 1.5)
+ImageFeaturePlot(subset(gw23_l2, idents=c("EN")), features = c("FOXP2"), 
+                 max.cutoff = 'q95', dark.background = F, size = 1.5)
+ImageFeaturePlot(subset(gw23_l2, idents=c("EN")), features = c("SOX2"), 
+                 max.cutoff = 'q95', dark.background = F, size = 1.5)
+ImageFeaturePlot(subset(gw23_l2, idents=c("EN")), features = c("CRTAC1"), 
+                 max.cutoff = 'q95', dark.background = F, size = 1.5)
+dev.off()
+
+ImageFeaturePlot(gw21, features = c("PAX7","POU4F1","LHX1","EN1"), 
+                 max.cutoff = 'q95', dark.background = F, size=1)
+
+pdf('/media/chang/HDD-3/chang/dapi/gw23_pv_pax7.pdf', width = 10)
+ImageFeaturePlot(subset(gw23_pv, idents=c("EN")), features = c("PAX7"), 
+                 max.cutoff = 'q95', dark.background = F, size=1)
+ImageFeaturePlot(subset(gw23_pv, idents=c("EN")), features = c("PENK"), 
+                 max.cutoff = 'q95', dark.background = F, size=1)
+dev.off()
+
+pdf('/media/chang/HDD-3/chang/dapi/gw21.pdf', width = 10)
+ImageDimPlot(subset(gw21, idents=c("EN")),split.by = 'class', 
              group.by = "clusters",cols=dittoColors(),
              dark.background = F, size = 2)
 dev.off()
+pdf('/media/chang/HDD-3/chang/dapi/gw23_l3.pdf', width = 10)
+ImageDimPlot(subset(gw23_l3, idents=c("EN")),split.by = 'class', 
+             group.by = "clusters",cols=c("#E69F00", "#56B4E9", "#F0E442","#009E73"),
+             dark.background = F, size = 1)
+dev.off()
+
 
 pdf('/media/chang/HDD-3/chang/dapi/new_in.pdf', width = 10)
 ImageDimPlot(subset(gw21, idents=c("IN")),split.by = 'class', 
@@ -1457,7 +1664,7 @@ dev.off()
 pdf('/media/chang/HDD-3/chang/dapi/gw16_in.pdf', width = 10)
 ImageDimPlot(subset(gw16_lgn, idents=c("IN")),split.by = 'class', 
              group.by = "clusters",
-             cols= c("#E69F00","#56B4E9","#0072B2","#F0E442","#009E73"),
+             cols= c("#E69F00","#56B4E9","#0072B2","#F0E442","#009E73","#D55E00"),
              dark.background = F, size = 1)
 dev.off()
 
@@ -1596,8 +1803,91 @@ ImageFeaturePlot(subset(gw23_m2, idents=c("EN")), features = "NTS", size = 2,
 ImageFeaturePlot(subset(gw23_vm, idents=c("EN")), features = "NTS", size = 2,
                  max.cutoff = 'q95',dark.background = F)
 dev.off()
+pdf("/media/chang/HDD-3/chang/dapi/slc17a6.pdf", width = 10)
+ImageFeaturePlot(subset(gw16_lgn, idents=c("EN")), features = c("SLC17A6"), size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_l1, idents=c("EN")), features = "SLC17A6", size = 3,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_l3, idents=c("EN")), features = "SLC17A6", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw21, idents=c("EN")), features = "SLC17A6", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_m2, idents=c("EN")), features = "SLC17A6", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_vm, idents=c("EN")), features = "SLC17A6", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+dev.off()
+pdf("/media/chang/HDD-3/chang/dapi/calb2.pdf", width = 10)
+ImageFeaturePlot(subset(gw16_lgn, idents=c("EN")), features = c("CALB2"), size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_l1, idents=c("EN")), features = "CALB2", size = 3,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_l3, idents=c("EN")), features = "CALB2", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw21, idents=c("EN")), features = "CALB2", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_m2, idents=c("EN")), features = "CALB2", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_vm, idents=c("EN")), features = "CALB2", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+dev.off()
+pdf("/media/chang/HDD-3/chang/dapi/prox1.pdf", width = 10)
+ImageFeaturePlot(subset(gw16_lgn, idents=c("EN")), features = c("PROX1"), size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_l1, idents=c("EN")), features = "PROX1", size = 3,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_l3, idents=c("EN")), features = "PROX1", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw21, idents=c("EN")), features = "PROX1", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_m2, idents=c("EN")), features = "PROX1", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_vm, idents=c("EN")), features = "PROX1", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+dev.off()
 
-
+pdf("/media/chang/HDD-3/chang/dapi/pou4f1.pdf", width = 10)
+ImageFeaturePlot(subset(gw16_lgn, idents=c("IN")), features = "POU4F1", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_l1, idents=c("IN")), features = "POU4F1", size = 3,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_l3, idents=c("IN")), features = "POU4F1", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw21, idents=c("IN")), features = "POU4F1", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_m2, idents=c("IN")), features = "POU4F1", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_vm, idents=c("IN")), features = "POU4F1", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+dev.off()
+pdf("/media/chang/HDD-3/chang/dapi/foxg1.pdf", width = 10)
+ImageFeaturePlot(subset(gw16_lgn, idents=c("IN")), features = "FOXG1", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_l1, idents=c("IN")), features = "FOXG1", size = 3,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_l3, idents=c("IN")), features = "FOXG1", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw21, idents=c("IN")), features = "FOXG1", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_m2, idents=c("IN")), features = "EN1", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_vm, idents=c("IN")), features = "EN1", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+dev.off()
+pdf("/media/chang/HDD-3/chang/dapi/dlx6.pdf", width = 10)
+ImageFeaturePlot(subset(gw16_lgn, idents=c("IN")), features = "DLX6", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_l1, idents=c("IN")), features = "DLX6", size = 3,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_l3, idents=c("IN")), features = "DLX6", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw21, idents=c("IN")), features = "DLX6", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_m2, idents=c("IN")), features = "DLX6", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+ImageFeaturePlot(subset(gw23_vm, idents=c("IN")), features = "DLX6", size = 2,
+                 max.cutoff = 'q95',dark.background = F)
+dev.off()
 pdf("/media/chang/HDD-3/chang/dapi/crabp1.pdf", width = 10)
 ImageFeaturePlot(subset(gw23_l1, idents=c("IN")), features = "CRABP1", size = 3,
                  max.cutoff = 'q97', dark.background = F)
@@ -1671,6 +1961,20 @@ ImageFeaturePlot(subset(gw23_m2, idents=c("IN")), features = "EBF1", size = 2,
 ImageFeaturePlot(subset(gw23_vm, idents=c("IN")), features = "EBF1", size = 2,
                  max.cutoff = 'q97', dark.background = F)
 dev.off()
+pdf("/media/chang/HDD-3/chang/dapi/gad1.pdf", width = 10)
+ImageFeaturePlot(subset(gw23_l1, idents=c("IN")), features = "GAD1", size = 3,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw23_l3, idents=c("IN")), features = "GAD1", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw16_lgn, idents=c("IN")), features = "GAD1", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw21, idents=c("IN")), features = "GAD1", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw23_m2, idents=c("IN")), features = "GAD1", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw23_vm, idents=c("IN")), features = "GAD1", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+dev.off()
 
 pdf("/media/chang/HDD-3/chang/dapi/gw16_in_feat.pdf", width = 10)
 ImageFeaturePlot(subset(gw16_lgn, idents=c("IN")), features = "SOX14", size = 2,
@@ -1678,45 +1982,120 @@ ImageFeaturePlot(subset(gw16_lgn, idents=c("IN")), features = "SOX14", size = 2,
 ImageFeaturePlot(subset(gw16_lgn, idents=c("IN")), features = "CRABP1", size = 2,
                  max.cutoff = 'q97', dark.background = F)
 dev.off()
-
-pdf("/media/chang/HDD-3/chang/dapi/glia.pdf", width = 6)
-  dittoBarPlot(subset(gw16_lgn, idents=c("Glia")), group.by = "orig.ident",
-             var='clusters',color.panel =c("#E69F00","#AD7700","#56B4E9","#009E73",
-                                                   "#0072B2","#D55E00","#F0E442")) +
-  dittoBarPlot(subset(gw23_l1, idents=c("Glia")), group.by = "orig.ident",
-             var='clusters')+
-  dittoBarPlot(subset(gw23_l3, idents=c("Glia")), group.by = "orig.ident",
-             var='clusters',color.panel=c(dittoColors()[1:5],"#666666","#D55E00"))+
-  dittoBarPlot(subset(gw19, idents=c("Glia")), group.by = "orig.ident",
-             var='clusters')+
-  dittoBarPlot(subset(gw23_m2, idents=c("Glia")), group.by = "orig.ident",
-             var='clusters',
-             color.panel =c(dittoColors()[1:4],"#CC79A7","#0072B2","#D55E00"))+
-  dittoBarPlot(subset(gw23_vm, idents=c("Glia")), group.by = "orig.ident",
-             var='clusters',color.panel=c(dittoColors()[1:4],"#CC79A7","#0072B2","#D55E00"))
+pdf("/media/chang/HDD-3/chang/dapi/sparcl1.pdf", width = 10)
+ImageFeaturePlot(subset(gw23_l1, idents=c("Glia")), features = "", size = 3,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw23_l3, idents=c("Glia")), features = "GAD1", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw16_lgn, idents=c("Glia")), features = "GAD1", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw21, idents=c("Glia")), features = "GAD1", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw23_m2, idents=c("Glia")), features = "GAD1", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw23_vm, idents=c("Glia")), features = "GAD1", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
 dev.off()
 
-pdf("/media/chang/HDD-3/chang/dapi/vln_glia.pdf", height = 3, width = 8)
-VlnPlot(subset(gw23_m2, idents=c("Glia")), features = c("SOX2","LGR6","FOXJ1","PDGFRA"), 
-            ncol=4, pt.size = 0, group.by = 'clusters',
-        cols = c(dittoColors()[1:4],"#CC79A7","#0072B2","#D55E00"))
-VlnPlot(subset(gw23_vm, idents=c("Glia")), features = c("SOX2","LGR6","FOXJ1","PDGFRA"), 
-        ncol=4, pt.size = 0, group.by = 'clusters',
-        cols = c(dittoColors()[1:4],"#CC79A7","#0072B2","#D55E00"))
+
+pdf("/media/chang/HDD-3/chang/dapi/foxj1.pdf", width = 10)
+ImageFeaturePlot(subset(gw23_l1, idents=c("Glia")), features = "FOXJ1", size = 3,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw23_l3, idents=c("Glia")), features = "FOXJ1", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw16_lgn, idents=c("Glia")), features = "FOXJ1", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw21, idents=c("Glia")), features = "FOXJ1", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw23_m2, idents=c("Glia")), features = "FOXJ1", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw23_vm, idents=c("Glia")), features = "FOXJ1", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
 dev.off()
+pdf("/media/chang/HDD-3/chang/dapi/lgr6.pdf", width = 10)
+ImageFeaturePlot(subset(gw23_l1, idents=c("Glia")), features = "LGR6", size = 3,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw23_l3, idents=c("Glia")), features = "LGR6", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw16_lgn, idents=c("Glia")), features = "LGR6", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw21, idents=c("Glia")), features = "LGR6", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw23_m2, idents=c("Glia")), features = "LGR6", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw23_vm, idents=c("Glia")), features = "LGR6", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+dev.off()
+pdf("/media/chang/HDD-3/chang/dapi/sparcl1.pdf", width = 10)
+ImageFeaturePlot(subset(gw23_l1, idents=c("Glia")), features = "SPARCL1", size = 3,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw23_l3, idents=c("Glia")), features = "SPARCL1", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw16_lgn, idents=c("Glia")), features = "SPARCL1", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw21, idents=c("Glia")), features = "SPARCL1", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw23_m2, idents=c("Glia")), features = "SPARCL1", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw23_vm, idents=c("Glia")), features = "SPARCL1", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+dev.off()
+pdf("/media/chang/HDD-3/chang/dapi/pdgfra.pdf", width = 10)
+ImageFeaturePlot(subset(gw23_l1, idents=c("Glia")), features = "PDGFRA", size = 3,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw23_l3, idents=c("Glia")), features = "PDGFRA", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw16_lgn, idents=c("Glia")), features = "PDGFRA", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw21, idents=c("Glia")), features = "PDGFRA", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw23_m2, idents=c("Glia")), features = "PDGFRA", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw23_vm, idents=c("Glia")), features = "PDGFRA", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+dev.off()
+pdf("/media/chang/HDD-3/chang/dapi/spp1.pdf", width = 10)
+ImageFeaturePlot(subset(gw23_l1, idents=c("Glia")), features = "SPP1", size = 3,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw23_l3, idents=c("Glia")), features = "SPP1", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw16_lgn, idents=c("Glia")), features = "SPP1", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw21, idents=c("Glia")), features = "SPP1", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw23_m2, idents=c("Glia")), features = "SPP1", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw23_vm, idents=c("Glia")), features = "SPP1", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+dev.off()
+pdf("/media/chang/HDD-3/chang/dapi/cldn5.pdf", width = 10)
+ImageFeaturePlot(subset(gw23_l1, idents=c("Glia")), features = "CLDN5", size = 3,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw23_l3, idents=c("Glia")), features = "CLDN5", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw16_lgn, idents=c("Glia")), features = "CLDN5", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw21, idents=c("Glia")), features = "CLDN5", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw23_m2, idents=c("Glia")), features = "CLDN5", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+ImageFeaturePlot(subset(gw23_vm, idents=c("Glia")), features = "CLDN5", size = 2,
+                 max.cutoff = 'q97', dark.background = F)
+dev.off()
+
 
 p1 = VlnPlot(gw23_l1, features = c("nCount_Vizgen",'nFeature_Vizgen'), group.by = "clusters",
              pt.size = 0, cols = dittoColors())
 p2 = VlnPlot(gw23_l3, features = c("nCount_Vizgen",'nFeature_Vizgen'), group.by = "clusters", pt.size = 0, cols = dittoColors())
-p7 = VlnPlot(gw19, features = c("nCount_Vizgen",'nFeature_Vizgen'), group.by = "clusters", pt.size = 0, cols = dittoColors())
+p7 = VlnPlot(gw16_lgn, features = c("nCount_Vizgen",'nFeature_Vizgen'), group.by = "clusters", pt.size = 0, cols = dittoColors())
 p3 = VlnPlot(gw21, features = c("nCount_Vizgen",'nFeature_Vizgen'), group.by = "clusters", pt.size = 0, cols = dittoColors())
 p4 = VlnPlot(gw23_m2, features = c("nCount_Vizgen",'nFeature_Vizgen'), group.by = "clusters", pt.size = 0, cols = dittoColors())
 p5 = VlnPlot(gw23_vm, features = c("nCount_Vizgen",'nFeature_Vizgen'), group.by = "clusters", pt.size = 0, cols = dittoColors())
 
-p6 = VlnPlot(gw21_2, features = c("nCount_Vizgen",'nFeature_Vizgen'), group.by = "clusters", pt.size = 0, cols = dittoColors())
+p6 = VlnPlot(gw23_l2, features = c("nCount_Vizgen",'nFeature_Vizgen'), group.by = "clusters", pt.size = 0, cols = dittoColors())
 
 pdf("/media/chang/HDD-3/chang/dapi/merfish_qc.pdf", width = 10, height = 14)
-wrap_plots(p1, p2, p7, p3, p4, p5, p6,ncol = 1, nrow = 7)
+wrap_plots(p1, p7, p2, p3, p4, p5, p6,ncol = 1, nrow = 7)
 dev.off()
 
 
