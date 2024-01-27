@@ -141,3 +141,40 @@ merged_stg = SCTransform(merged_stg, vst.flavor='v2', assay = 'cleaned')
 
 
 ```
+
+
+
+```{r}
+stg = readRDS("/media/chang/HDD-3/chang/stg/sten.rds")
+stg = FindNeighbors(stg, dims=1:2, reduction = 'UMAP')
+stg = FindClusters(stg, algorithm = 2, resolution = .1)
+DimPlot(stg, label=T, cols=dittoColors(), group.by = 'RNA_snn_res.0.1')+
+  DimPlot(stg, label=T, group.by = "supercluster_term", cols=dittoColors()) & NoAxes()
+test = wilcoxauc(stg, group_by = "RNA_snn_res.0.1")
+top_markers(test)
+
+ensembl <- useMart("ensembl", dataset="hsapiens_gene_ensembl")
+bm <- getBM(attributes=c("ensembl_gene_id", "hgnc_symbol"), values=rownames(stg), mart=ensembl)
+bm = bm[bm$hgnc_symbol != "",]
+bm = bm[!duplicated(bm$ensembl_gene_id),]
+rownames(bm) = bm$ensembl_gene_id
+bm = bm[intersect(bm$ensembl_gene_id, rownames(stg@assays$RNA@data)),]
+mtx = stg@assays$RNA@data[bm$ensembl_gene_id,]
+rownames(mtx) = bm$hgnc_symbol
+stg2 = CreateSeuratObject(mtx)
+stg2@meta.data = cbind(stg2@meta.data, stg@meta.data)
+stg2[["UMAP"]] = stg[["UMAP"]]
+stg2[["tSNE"]] = stg[["tSNE"]]
+saveRDS(stg2, file='/media/chang/HDD-3/chang/stg/sten_cleaned.rds')
+
+FeaturePlot(stg, features = c("ENC1","CBLN2","TRHDE"), order=T, max.cutoff = 'q99') & NoAxes()
+
+stg = subset(stg, idents=1:26)
+library(DropletUtils)
+write10xCounts("/media/chang/HDD-3/chang/stg/sten_cleaned.h5",stg@assays$RNA@counts,
+              version='3', type="HDF5")
+av.exp <- AverageExpression(stg)$RNA
+cor.exp <- as.data.frame(cor(av.exp))
+pheatmap(cor.exp)
+
+```

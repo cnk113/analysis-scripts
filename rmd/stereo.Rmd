@@ -1,0 +1,238 @@
+---
+title: "stereo"
+output: html_document
+date: "2023-10-04"
+---
+
+```{r}
+library(Seurat)
+library(dittoSeq)
+library(SeuratData)
+
+amy_atlas = readRDS("/media/chang/HDD-5/chang/stereo/GSE195445_Human_obj.rds")
+amy1 = readRDS("/media/chang/HDD-5/chang/stereo/amy1.rds")
+amy2 = readRDS("/media/chang/HDD-5/chang/stereo/amy2.rds")
+
+amy1 = subset(amy1, subset=nFeature_Spatial >= 300 & nCount_Spatial >= 500)
+amy2 = subset(amy2, subset=nFeature_Spatial >= 300 & nCount_Spatial >= 500)
+
+amy1 = SCTransform(amy1, vst.flavor='v2', assay = 'Spatial', vars.to.regress = 'percent.mito')
+amy2 = SCTransform(amy2, vst.flavor='v2', assay = "Spatial",vars.to.regress = 'percent.mito')
+
+amy1 = RunPCA(amy1)
+amy2 = RunPCA(amy2)
+
+amy1 = RunUMAP(amy1, dims=1:10)
+amy2 = RunUMAP(amy2, dims=1:10)
+
+amy1 = FindNeighbors(amy1, dims=1:10)
+amy2 = FindNeighbors(amy2, dims=1:10)
+
+
+amy2 = FindClusters(amy2, algorithm = 2, resolution = .4)
+
+amy_atlas$celltype_full = substr(amy_atlas$orig_anno, 7, 30)
+Idents(amy_atlas) = amy_atlas$celltype_full
+test = wilcoxauc(amy_atlas)
+amy_atlas <- RunUMAP(amy_atlas, dims = 1:100, reduction = "pca", return.model = TRUE)
+
+p1 = DimPlot(amy_atlas, group.by = c("celltype_full"), label=T, pt.size = 1,
+        cols=dittoColors()) & NoAxes() + NoLegend()
+p2 = DimPlot(amy_atlas, group.by = c("space_anno"), label=T, pt.size = 1,
+        cols=dittoColors()) & NoAxes()
+p1+p2
+
+
+amy1.anchors <- FindTransferAnchors(reference = amy_atlas, query = amy1,query.assay = "Spatial",
+    dims = 1:100, reference.reduction = "pca", normalization.method = "SCT")
+amy1 <- MapQuery(anchorset = amy1.anchors, reference = amy_atlas, query = amy1, 
+    refdata = list(celltype = "celltype_full"), reference.reduction = "pca", reduction.model = "umap")
+
+DimPlot(subset(amy1, subset=predicted.celltype.score > .5), cols=dittoColors(), label=T, group.by = "predicted.celltype") + NoAxes()
+
+amy2.anchors <- FindTransferAnchors(reference = amy_atlas, query = amy2,query.assay = "Spatial",
+    dims = 1:100, reference.reduction = "pca", normalization.method = "SCT")
+amy2 <- MapQuery(anchorset = amy2.anchors, reference = amy_atlas, query = amy2,
+    refdata = list(celltype = "celltype_full"), reference.reduction = "pca", reduction.model = "umap")
+
+DimPlot(subset(amy2, subset=predicted.celltype.score > .5), cols=dittoColors(), label=T, group.by = "predicted.celltype") + NoAxes()
+
+top_markers(test)[,36]
+
+FeaturePlot(amy_atlas, features = c("GLRA3"), order=T, max.cutoff = 'q98',
+            reduction = 'umap', pt.size = 1) & NoAxes() 
+
+FeaturePlot(amy1, features = c("DCX","SOX11"), order=T, max.cutoff = 'q98',
+            reduction = 'umap', pt.size=1) & NoAxes()
+FeaturePlot(amy2, features = c("DCX","SOX11"), order=T, max.cutoff = 'q98',
+            reduction = 'umap', pt.size = 1) & NoAxes() 
+
+
+.resize_slice_images <- function(obj, w = 300) {
+    if (!requireNamespace("EBImage", quietly = TRUE)) return(obj)
+    .resize_image <- function(k) {
+        new_k <- paste0(k, "_scaled")
+        obj@images[[new_k]] <- obj@images[[k]]
+        obj@images[[new_k]]@image <- EBImage::resize( obj@images[[k]]@image, w = w)
+        r <- w / nrow(obj@images[[k]]@image)
+        obj@images[[k]] <- NULL
+        obj@images[[new_k]]@scale.factors$lowres <- obj@images[[new_k]]@scale.factors$lowres * r
+        obj
+    }
+    all_images <- Images(obj)
+    for(i in all_images) {
+        obj <- .resize_image(i)
+    }    
+    obj
+}
+
+
+test2 = .resize_slice_images(amy2)
+
+SpatialFeaturePlot(test2, features = c("DCX","SOX11"), alpha = c(0.1, .8),image.alpha = 0)
+cells = subset(amy2, subset=SOX11 > 1)
+amy2$clusters = "Non"
+amy2$clusters[colnames(cells)] = "Immature neurons"
+Idents(amy2) = amy2$clusters
+SpatialDimPlot(test2, cells.highlight = CellsByIdentities(object = amy2, 
+                                                          idents = c("Immature neurons")),
+               facet.highlight = TRUE)
+
+DimPlot(amy2, cols=dittoColors(), label=T, group.by = "clusters", reduction = 'umap') + NoAxes()
+
+pdf("~/spatial_amy2.pdf", width = 12, height = 9)
+SpatialDimPlot(amy2,stroke = NA, pt.size.factor = 100,image.alpha = 0, group.by = "SCT_snn_res.0.4")
+dev.off()
+
+```
+
+```{r}
+hp_atlas = readRDS("/media/chang/HDD-5/chang/stereo/hp_atlas.rds")
+hp1 = readRDS("/media/chang/HDD-5/chang/stereo/hp1.rds")
+hp2 = readRDS("/media/chang/HDD-5/chang/stereo/hp2.rds")
+
+hp1 = subset(hp1, subset=nFeature_Spatial >= 300 & nCount_Spatial >= 500)
+hp2 = subset(hp2, subset=nFeature_Spatial >= 300 & nCount_Spatial >= 500)
+
+hp1 = SCTransform(hp1, vst.flavor='v2', assay = 'Spatial',vars.to.regress = 'percent.mito')
+hp2 = SCTransform(hp2, vst.flavor='v2', assay = "Spatial",vars.to.regress = 'percent.mito')
+
+hp1 = RunPCA(hp1)
+hp2 = RunPCA(hp2)
+
+hp1 = RunUMAP(hp1, dims=1:10)
+hp2 = RunUMAP(hp2, dims=1:10)
+
+hp1 = FindNeighbors(hp1, dims=1:10)
+hp2 = FindNeighbors(hp2, dims=1:10)
+
+hp1 = FindClusters(hp1, algorithm = 2, resolution = 1.2)
+
+DimPlot(hp1, label=T) + NoAxes()
+
+test = wilcoxauc(hp1, seurat_assay = 'SCT')
+
+FeaturePlot(hp1, features = c("VIP","SST","GAD1","OLFM1","CLDN5","PLP1","AQP4","PTPRZ1","ARC"), 
+            order=T, max.cutoff = 'q99') & NoAxes()
+
+hp1$clusters = as.character(hp1$SCT_snn_res.1.2)
+hp1$clusters[hp1$clusters == 13] ="VIP"
+hp1$clusters[hp1$clusters == 14] ="SST"
+hp1$clusters[hp1$clusters ==0] ="DG"
+hp1$clusters[hp1$clusters ==2] ="DG"
+hp1$clusters[hp1$clusters ==7] ="DG"
+hp1$clusters[hp1$clusters ==1] ="DG"
+hp1$clusters[hp1$clusters ==3] ="DG"
+hp1$clusters[hp1$clusters ==10] ="EC"
+hp1$clusters[hp1$clusters ==4] ="AC"
+hp1$clusters[hp1$clusters ==11] ="AC"
+hp1$clusters[hp1$clusters ==12] ="AC"
+hp1$clusters[hp1$clusters ==5] ="OL"
+hp1$clusters[hp1$clusters ==9] ="OL"
+hp1$clusters[hp1$clusters ==6] ="PYR"
+hp1$clusters[hp1$clusters ==8] ="PYR"
+Idents(hp1) = hp1$clusters
+DimPlot(hp1, label=T) + NoAxes()
+
+SpatialDimPlot(hp1,pt.size.factor = 5, stroke = 0, alpha = 1)
+
+
+
+FeaturePlot(hp2, features = c("VIP","SST","GAD1","OLFM1","CLDN5","PLP1","AQP4","PTPRZ1","ARC"), 
+            order=T, max.cutoff = 'q99') & NoAxes()
+
+hp2 = FindClusters(hp2, algorithm = 2, resolution = .4)
+
+hp2$clusters = as.character(hp2$SCT_snn_res.0.4)
+hp2$clusters[hp2$clusters == 3] ="AC"
+hp2$clusters[hp2$clusters == 2] ="OL"
+hp2$clusters[hp2$clusters == 1] ="PYR"
+hp2$clusters[hp2$clusters == 0] ="DG"
+hp2$clusters[hp2$clusters == 4] ="DG"
+hp2$clusters[hp2$clusters == 7] ="DG"
+hp2$clusters[hp2$clusters == 6] ="SST"
+hp2$clusters[hp2$clusters == 5] ="DG"
+
+Idents(hp2) = hp2$clusters
+DimPlot(hp2, label=T) + NoAxes()
+
+SpatialDimPlot(hp2,pt.size.factor = 5, stroke = 0, alpha = 1)
+```
+
+```{r}
+mtg = readRDS("/media/chang/HDD-5/chang/stereo/mtg.rds")
+Idents(mtg) = mtg$subclass_label
+mtg = RunPCA(mtg)
+mtg = RunUMAP(mtg, dims=1:30, return.model=TRUE)
+
+
+stg = readRDS("/media/chang/HDD-5/chang/stereo/stg.rds")
+stg = subset(stg, subset=nFeature_Spatial >= 300 & nCount_Spatial >= 500)
+stg = SCTransform(stg, vst.flavor='v2', assay = "Spatial",vars.to.regress = 'percent.mito')
+stg = RunPCA(stg)
+stg = RunUMAP(stg, dims=1:10)
+stg = FindNeighbors(stg, dims=1:10)
+
+
+stg.anchors <- FindTransferAnchors(reference = mtg, query = stg,query.assay = "Spatial",
+    dims = 1:50, reference.reduction = "pca", normalization.method = "SCT")
+stg <- MapQuery(anchorset = stg.anchors, reference = mtg, query = stg, 
+    refdata = list(celltype = "subclass_label"), reference.reduction = "pca", reduction.model = "umap")
+
+
+DimPlot(stg, group.by = 'predicted.celltype', cols=dittoColors())
+
+
+
+stg = FindClusters(stg, algorithm = 2, resolution = .8)
+stg$clusters = as.character(stg$SCT_snn_res.0.8)
+stg$clusters[stg$clusters == 6] ="AC"
+stg$clusters[stg$clusters == 8] ="PC"
+stg$clusters[stg$clusters == 9] ="VIP"
+stg$clusters[stg$clusters == 5] ="SST"
+stg$clusters[stg$clusters == 10] ="LAMP5"
+stg$clusters[stg$clusters == 1] ="LAMP5"
+stg$clusters[stg$clusters == 7] ="OL"
+stg$clusters[stg$clusters == 4] ="L4/5/6"
+stg$clusters[stg$clusters == 3] ="L4/5/6"
+stg$clusters[stg$clusters == 2] ="L4/5/6"
+stg$clusters[stg$clusters == 0] ="L4/5/6"
+
+DimPlot(stg, group.by = 'clusters', cols=dittoColors(), label=T)
+Idents(stg) = stg$clusters
+SpatialDimPlot(stg,stroke = 0, pt.size.factor = 5, group.by = "clusters")
+FeaturePlot(stg, features = c("LAMP5","VIP","PVALB","SST","NTNG1","TLE4","PTPRZ1","SLC1A2","PLP1"),
+            ncol=3, order=T, max.cutoff = 'q98',reduction = 'umap', pt.size=.1) & NoAxes()
+
+DefaultAssay(stg) = "SCT"
+FeatureScatter(subset(stg, idents = "VIP"), feature1 = "x", feature2 = 'VIP', group.by = 'clusters') + geom_smooth(method='loess')
+
+FeatureScatter(stg, feature1 = "x", feature2 = 'SST', group.by = 'clusters')
+
+RidgePlot(object = stg, features = 'x', group.by = 'clusters')
+
+pdf("~/spatial_stg.pdf", width = 12, height = 9)
+SpatialDimPlot(stg,stroke = NA, pt.size.factor = 100,image.alpha = 0, group.by = "clusters")
+dev.off()
+```
+

@@ -2319,3 +2319,18 @@ VlnPlot(subset(thal, idents = c("EN1","EN2","EN3")), group.by = 'clusters',
 dev.off()
 ```
 
+```{r}
+library(UCell)
+deg = read.csv('~/DEG_forspatialmapping.csv')
+degs = split(deg, deg$celltype)
+degs = lapply(degs, function(i) i$markers)
+gw21 = readRDS('/media/chang/HDD-3/chang/gw21_labelled.rds')
+
+gw21 = AddModuleScore_UCell(gw21, features = degs, assay = 'SCT')
+
+
+pdf("~/ucell_deg.pdf", width = 10)
+ImageFeaturePlot(gw21, size = .5, max.cutoff = 'q98', dark.background = F, min.cutoff = 'q20',
+                 features = c("AC_UCell","DIV_UCell","EN_UCell","GL_UCell","IN_UCell","IPC_UCell"))
+dev.off()
+```

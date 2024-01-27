@@ -1,0 +1,346 @@
+---
+title: "vasc_lineage"
+output: html_notebook
+---
+
+```{r}
+library(Seurat)
+library(dittoSeq)
+library(harmony)
+library(SeuratWrappers)
+library(scCustomize)
+library(scds)
+library(presto)
+library(viridis)
+library(stringr)
+library(scRNAtoolVis)
+library(celda)
+library(flexmix)
+library(Matrix)
+library(SingleCellExperiment)
+library(DropletUtils)
+options(warn = 1)
+
+```
+
+```{r}
+ReadPIP <- function(data.dir, sensitivity,  proj="proj", type='InVivo',sample='sample',
+                    clean=TRUE, clone=TRUE) {
+  data.dir.genefull = paste0(data.dir, "out/raw_matrix/")
+  raw = Read10X(data.dir.genefull)
+  data.dir.filt = paste0(data.dir, "out/filtered_matrix/sensitivity_", sensitivity)
+  filtered = Read10X(data.dir.filt)
+  seurat = CreateSeuratObject(filtered, project=proj)
+  seurat$Type = type
+  seurat$Sample = sample
+  if(clean == TRUE){
+    sce <- SingleCellExperiment(list(counts = filtered))
+    sce.raw <- SingleCellExperiment(list(counts = raw))
+    
+    sce <- decontX(sce, background = sce.raw)
+    seurat[['cleaned']] = CreateAssayObject(round(decontXcounts(sce)))
+    seurat[['percent.mt']] = PercentageFeatureSet(seurat, pattern = "MT-",assay = 'cleaned')
+    seurat = subset(seurat, subset=nCount_cleaned >= 1000)
+    seurat = RunMiQC(seurat, percent.mt = "percent.mt", nFeature_RNA = "nFeature_cleaned", 
+                   model.slot = "flexmix_model")
+    if(clone == TRUE){
+      adt.dir = paste0(data.dir, "out/ADT/adt_raw_matrix")
+      raw = CreateSeuratObject(Read10X(adt.dir))
+      filtered = subset(raw, cells=colnames(seurat))
+      
+      sce <- SingleCellExperiment(list(counts = filtered@assays$RNA@counts))
+      sce.raw <- SingleCellExperiment(list(counts = raw@assays$RNA$counts))
+      
+      sce <- decontX(sce, background = sce.raw)
+      
+      seurat[['clone_cleaned']] = CreateAssayObject(round(decontXcounts(sce)))
+    }
+  }
+  else{
+    seurat = subset(seurat, cells=colnames(filtered))
+    seurat[['percent.mt']] = PercentageFeatureSet(seurat, pattern = "MT-")
+    seurat = RunMiQC(seurat, percent.mt = "percent.mt", 
+                   nFeature_RNA = "nFeature_RNA", 
+                   model.slot = "flexmix_model")
+  }
+  return(seurat)
+}
+```
+
+```{r}
+s137 = ReadPIP("/media/chang/HDD-5/chang/Chang_Kim_1/t5/", "5", 
+               proj="T5",sample="T5")
+
+s137 = subset(s137, subset=nCount_RNA >= 1000 & nFeature_RNA >=500)
+
+bc1 = read.csv("/media/chang/HDD-5/chang/Chang_Kim_1/t5/out/ADT/bc1.csv" ,row.names = 1) 
+bc1 = bc1[colnames(s137),]
+bc1$clone = strsplit(bc1$sgRNAs,", ")
+#bc1 = bc1[table(bc1$sgRNAs) > 1,]
+
+bc3 = read.csv("/media/chang/HDD-5/chang/Chang_Kim_1/t5/out/ADT/bc3.csv" ,row.names = 1) 
+bc3 = bc3[colnames(s137),]
+bc3$clone = strsplit(bc3$sgRNAs,", ")
+#bc3 = bc3[table(bc3$sgRNAs) > 1,]
+
+bc10 = read.csv("/media/chang/HDD-5/chang/Chang_Kim_1/t5/out/ADT/bc10.csv" ,row.names = 1) 
+bc10 = bc10[colnames(s137),]
+bc10$clone = strsplit(bc10$sgRNAs,", ")
+#bc10 = bc10[table(bc10$sgRNAs) > 1,]
+
+
+s137 = subset(s137, cells=rownames(bc))
+
+s137$BC = bc$sgRNAs
+
+s137 = SCTransform(s137, vst.flavor='v2')
+s137 = RunPCA(s137)
+s137 = RunUMAP(s137, dims=1:10)
+s137 = FindNeighbors(s137, dims=1:10)
+s137 = FindClusters(s137, algorithm = 2 ,resolution = .6)
+
+test = wilcoxauc(s137, seurat_assay = "SCT")
+
+bc = names(table(s137$BC)[table(s137$BC) > 1])
+s137 = subset(s137, subset=BC %in% bc)
+
+DimPlot_scCustom(s137, group.by = 'BC', pt.size = 1) + NoLegend()
+
+FeaturePlot(s137, features = c("CRYAB","TTR","POP1","ITM2A","PLVAP","KCNJ8",
+                               "MKI67","CRABP1"), 
+            order=T, max.cutoff = 'q99', ncol = 3) & scale_color_viridis() & NoAxes()
+
+FeaturePlot(s137, features = c("DCN","ITM2A","COL1A2","KCNJ8","TAGLN","CNN1",
+                               "MKI67"), 
+            order=T, max.cutoff = 'q99', ncol = 3) & scale_color_viridis() & NoAxes()
+
+s137 = ReadPIP("/media/chang/HDD-5/chang/Chang_Kim_1/137/", "5", 
+               proj="S137",sample="S137")
+s137_bc = CreateSeuratObject(Read10X("/media/chang/HDD-5/chang/Chang_Kim_1/137/out/ADT/adt_raw_matrix/"), min.cells = 1)
+
+s137 = CreateSeuratObject(Read10X("/media/chang/HDD-5/chang/Chang_Kim_1/137/out/raw_matrix/"))
+s137 = subset(s137, subset=nCount_RNA >= 1000 & nFeature_RNA >=500)
+s137 = SCTransform(s137, vst.flavor='v2')
+s137 = RunPCA(s137)
+s137 = RunUMAP(s137, dims=1:10)
+
+FeaturePlot(s137, features = c("AIF1","MRC1","LYVE1","DCN","GPNMB","TAGLN",
+                               "ACTA2","SPP1","TNF"),
+            order=T,max.cutoff = 'q99', ncol = 3) &NoAxes() & scale_color_viridis()
+
+s137_bc = CreateSeuratObject(Read10X("/media/chang/HDD-5/chang/Chang_Kim_1/137/out/ADT/adt_raw_matrix/"), min.cells = 1)
+
+s137_2 = subset(s137, cells=colnames(s137_bc))
+FeaturePlot(s137_2, features = c("AIF1","MRC1","LYVE1","DCN","GPNMB","TAGLN"),
+            order=T,max.cutoff = 'q99', ncol = 3) &NoAxes()
+VlnPlot(s137_2, features = 'nCount_RNA')
+
+s137_bc = subset(s137_bc, cells=colnames(s137_2))
+s137_2$BC <- rownames(s137_bc)[apply(s137_bc@assays$RNA@counts, MARGIN = 2, which.max)]
+
+DimPlot(s137_2, group.by = 'BC', label = T, cols=dittoColors(), repel = T)
+
+cells = intersect(colnames(s137), colnames(s137_bc))
+
+names(table(s137$BC)[table(s137$BC) > 1])
+
+
+
+
+
+
+s26 = CreateSeuratObject(Read10X("/media/chang/HDD-5/chang/Chang_Kim_1/26/out/raw_matrix/"))
+s26 = subset(s26, subset=nCount_RNA >= 1000 & nFeature_RNA >=500)
+s26 = SCTransform(s26, vst.flavor='v2')
+s26 = RunPCA(s26)
+s26 = RunUMAP(s26, dims=1:10)
+
+FeaturePlot(s26, features = c("AIF1","MRC1","LYVE1","DCN","LUM","TAGLN"),
+            order=T,max.cutoff = 'q99', ncol = 3) &NoAxes()
+
+
+s26_bc = CreateSeuratObject(Read10X("/media/chang/HDD-5/chang/Chang_Kim_1/26/out/ADT/adt_raw_matrix/"), min.cells = 1)
+s26_2 = subset(s26, cells=colnames(s26_bc))
+
+s26_bc = subset(s26_bc, cells=colnames(s26_2))
+s26_2$BC <- rownames(s26_bc)[apply(s26_bc@assays$RNA@counts, MARGIN = 2, which.max)]
+
+DimPlot(s26_2, group.by = 'BC', label = T, cols=dittoColors(), repel = T)
+
+FeaturePlot(s26_2, features = c("AIF1","MRC1","LYVE1","DCN","LUM","TAGLN"),
+            order=T,max.cutoff = 'q99', ncol = 3) &NoAxes()
+
+
+
+
+
+
+
+
+
+ec518 = ReadPIP("/media/chang/HDD-5/chang/Chang_Kim_4/ec518/", "5", 
+               proj="ec518",sample="ec518")
+ec518 = SCTransform(ec518, vst.flavor='v2')
+ec518 = RunPCA(ec518)
+ec518 = RunUMAP(ec518, dims=1:10)
+ec518 = FindNeighbors(ec518, dims=1:10)
+ec518 = FindClusters(ec518, resolution = .3, algorithm = 2)
+
+FeaturePlot(ec518, features = c("AIF1","MRC1","LYVE1","DCN","LUM","TAGLN"),
+            order=T,max.cutoff = 'q99', ncol = 3) &NoAxes()
+
+ec518[['clone']] = CreateAssayObject(ec518@assays$clone_cleaned@counts, min.cells = 2)
+ec518 = subset(ec518, subset=nCount_clone > 1)
+
+ec518 <- NormalizeData(ec518, assay = "clone", normalization.method = "CLR")
+ec518 = FindVariableFeatures(ec518, assay = 'clone')
+ec518 = ScaleData(ec518,assay = "clone")
+ec518 = RunPCA(ec518, assay = "clone")
+ec518 = RunUMAP(ec518, assay = 'clone', dims=1:10)
+DimPlot(ec518, reduction = 'umap', cols=dittoColors())
+DoHeatmap(ec518, assay = "clone_cleaned", group.by = "SCT_snn_res.0.3",
+          features = VariableFeatures(ec518[['clone_cleaned']])[1:100])
+
+
+
+VlnPlot(ec518, features = c("nCount_clone")) & ylim(0,1000)
+
+FeatureScatter(ec518, feature1 = "nCount_clone", feature2 = 'nFeature_clone')
+
+
+ec518$clone_call <- rownames(ec518@assays$clone)[apply(ec518@assays$clone@counts, MARGIN = 2, which.max)]
+
+length(ec518@assays$clone@counts[[rowSums(ec518@assays$clone@counts)  > 1],])
+
+ec518_2 = subset(ec518, subset= clone_call %in% c(names(table(ec518$clone_call)[table(ec518$clone_call) >= 3])))
+#ec518_2 = subset(ec518_2, subset= clone_call %in% c(names(table(ec518$clone_call)[table(ec518$clone_call) < 100])))
+
+DimPlot(ec518_2, group.by = 'clone_call', label = F, cols=dittoColors(), repel = T)
+
+FeaturePlot(ec518, features = c("AIF1","MRC1","LYVE1","DCN","LUM","TAGLN","CLDN5","VWF",
+                                "ACTA2","MKI67"),
+            order=T,max.cutoff = 'q99', ncol = 4) &NoAxes()
+```
+
+```{r}
+t3 = ReadPIP("/media/chang/HDD-5/chang/Chang_Kim_1/t3/", "5", proj="T3_FB", 
+                 sample="2048")
+t5 = ReadPIP("/media/chang/HDD-5/chang/Chang_Kim_1/t5/", "5", proj="T5_FBPC", 
+                 sample="2102")
+PlotMiQC(t5, color.by = "miQC.keep")
+first = merge(t3,t5)
+first = SCTransform(first, vst.flavor='v2', assay = 'cleaned')
+first = RunPCA(first)
+first = RunUMAP(first, dims=1:10)
+
+
+fb = ReadPIP("/media/chang/HDD-5/chang/Chang_Kim_1/fb/", "5", proj="FB", 
+                 sample="3363", type="InVitro")
+ecfba = ReadPIP("/media/chang/HDD-5/chang/Chang_Kim_1/ecfba/", "5", proj="ECFBA", 
+                 sample="3363", type="InVitro")
+fbb = ReadPIP("/media/chang/HDD-5/chang/Chang_Kim_1/fbb/", "5", proj="FBB", 
+                 sample="3363", type="InVitro")
+merged = merge(fb, c(ecfba, fbb))
+merged = SCTransform(merged, vst.flavor='v2', assay = 'cleaned')
+merged = RunPCA(merged)
+merged = RunUMAP(merged, dims=1:20)
+
+
+
+s75 = ReadPIP("/media/chang/HDD-5/chang/Chang_Kim_1/75/", "5", proj="75", 
+                 sample="2356", type="InVivo2")
+s84 = ReadPIP("/media/chang/HDD-5/chang/Chang_Kim_1/84/", "5", proj="84", 
+                 sample="2356", type="InVivo2")
+s951 = ReadPIP("/media/chang/HDD-5/chang/Chang_Kim_1/95_1/", "5", proj="95_1", 
+                 sample="2356", type="InVivo2")
+s952 = ReadPIP("/media/chang/HDD-5/chang/Chang_Kim_1/95_2/", "5", proj="95_2", 
+                 sample="2356", type="InVivo2")
+
+invivo2 = merge(first, c(s75, s84, s951, s952))
+invivo2 = subset(invivo2, subset=percent.mt < 5)
+invivo2 = SCTransform(invivo2, vst.flavor='v2', assay='cleaned')
+invivo2 = RunPCA(invivo2)
+invivo2 = RunUMAP(invivo2, dims=1:20)
+invivo2 = FindNeighbors(invivo2, dims=1:20)
+invivo2 = FindClusters(invivo2, algorithm = 2, resolution = .2)
+invivo2$clusters = as.character(invivo2$SCT_snn_res.0.2)
+
+invivo2$clusters[invivo2$clusters == 10] = "Fibroblast"
+invivo2$clusters[invivo2$clusters == 6] = "Venous/Tip"
+invivo2$clusters[invivo2$clusters == 13] = "RBC"
+invivo2$clusters[invivo2$clusters == 7] = "Dividing"
+invivo2$clusters[invivo2$clusters ==9] = "SMC/Pericytes"
+invivo2$clusters[invivo2$clusters ==4] = "Choroid"
+invivo2$clusters[invivo2$clusters ==12] = "Neurons"
+invivo2$clusters[invivo2$clusters ==11] = "Neurons"
+invivo2$clusters[invivo2$clusters ==3] = "OPC"
+invivo2$clusters[invivo2$clusters ==0] = "OPC"
+invivo2$clusters[invivo2$clusters ==5] = "OPC"
+invivo2$clusters[invivo2$clusters ==2] = "OL"
+invivo2$clusters[invivo2$clusters ==8] = "Imm_Endothelial"
+invivo2$clusters[invivo2$clusters ==1] = "Unknown"
+
+invivo2$orig.ident[invivo2$orig.ident == "75"] = "75_FB_PDGFA"
+invivo2$orig.ident[invivo2$orig.ident == "84"] = "84_FB_PDGFB"
+invivo2$orig.ident[invivo2$orig.ident == "95_1"] = "95_1_FB"
+invivo2$orig.ident[invivo2$orig.ident == "95_2"] = "95_2_FB"
+
+DimPlot(invivo2, cols=dittoColors(), label=T, 
+        group.by = c('clusters', 'orig.ident')) & NoAxes()
+
+dittoBarPlot(invivo2, var='clusters', group.by = "orig.ident")
+
+
+
+
+ec = ReadPIP("/media/chang/HDD-5/chang/Chang_Kim_1/ec/", "5", proj="EC", 
+                 sample="2647", type="InVitro")
+ec = SCTransform(ec, vst.flavor='v2', assay='cleaned')
+ec = RunPCA(ec)
+ec = RunUMAP(ec, dims=1:20)
+ec = FindNeighbors(ec, dims=1:20)
+ec = FindClusters(ec, algorithm = 2, resolution = .1)
+
+
+p1 = DimPlot(ec, cols=dittoColors(), label=T) + NoAxes()
+
+test = wilcoxauc(ec, seurat_assay = "SCT")
+top_markers(test)
+
+FeaturePlot(ec, features = c("CLDN5", "DCN","LUM","TAGLN","ACTA2","MKI67","POSTN",
+                             "MECOM","VWF","MFSD2A","RGS5","SPP1"),ncol=4, order=T, 
+            max.cutoff = 'q99') & NoAxes() & scale_color_viridis()
+
+ec2 = subset(ec, idents=c(3,6,7,10))
+ec2 = SCTransform(ec2, vst.flavor='v2', assay = 'cleaned')
+ec2 = RunPCA(ec2)
+ec2 = RunUMAP(ec2,dims=1:20)
+ec2 = FindNeighbors(ec2,dims=1:20)
+ec2 = FindClusters(ec2, algorithm = 2, resolution = .4)
+
+ec2$clusters = as.character(ec2$SCT_snn_res.0.4)
+ec2$clusters[ec2$clusters == 2] = "Endothelial"
+ec2$clusters[ec2$clusters == 9] = "Pericytes"
+ec2$clusters[ec2$clusters == 10] = "Endothelial"
+
+ec2$clusters[ec2$clusters == 6] = "Venous/Tip"
+ec2$clusters[ec2$clusters == 7] = "Venous/Tip"
+
+ec2$clusters[ec2$clusters == 1] = "Fibroblast"
+ec2$clusters[ec2$clusters == 8] = "Fibroblast"
+
+ec2$clusters[ec2$clusters == 0] = "UNK"
+ec2$clusters[ec2$clusters == 3] = "UNK"
+ec2$clusters[ec2$clusters == 4] = "UNK"
+ec2$clusters[ec2$clusters == 5] = "UNK"
+ec2$clusters[ec2$clusters == 11] = "UNK"
+
+Idents(ec2) = ec2$clusters
+test = wilcoxauc(ec2, seurat_assay = "SCT")
+
+DimPlot(ec2, cols=dittoColors(), label=T, group.by = 'clusters') + NoAxes()
+
+FeaturePlot(ec2, features = c("CLDN5", "PECAM1","MECOM","VWF","DCN","LUM",
+                              "MKI67","OCIAD2","RGCC","RGS5","TAGLN","ACTA2"),
+            ncol=4, order=T,max.cutoff = 'q99') & NoAxes() & scale_color_viridis()
+```

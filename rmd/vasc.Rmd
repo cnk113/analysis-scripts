@@ -1708,6 +1708,248 @@ res =
 ```
 
 
+
+
+
+
 ```{r}
-sce = as.SingleCellExperiment(merged2)
+ReadSTAR <- function(data.dir, sample='sample',clean=TRUE, meta) {
+  data.dir.genefull = paste0(data.dir, "GeneFull_Ex50pAS/raw/")
+  raw = ReadSTARsolo(data.dir.genefull)
+  data.dir.filt = paste0(data.dir, "GeneFull_Ex50pAS/filtered/")
+  filtered = ReadSTARsolo(data.dir.filt)
+  seurat = CreateSeuratObject(filtered, project=sample)
+  seurat$Sample = sample
+  donor_meta = read.table(meta, sep='\t', header = T)
+  seurat@meta.data = cbind(seurat@meta.data, donor_meta)
+  if(clean == TRUE){
+    sce <- SingleCellExperiment(list(counts = filtered))
+    sce.raw <- SingleCellExperiment(list(counts = raw))
+    
+    sce <- decontX(sce, background = sce.raw)
+    seurat[['cleaned']] = CreateAssayObject(round(decontXcounts(sce)))
+    seurat[['percent.mt']] = PercentageFeatureSet(seurat, pattern = "MT-",assay = 'cleaned')
+    seurat = subset(seurat, subset=nFeature_cleaned >= 500)
+  }
+  subset(seurat, subset=donor_id %in% c("donor0","donor1","donor2","donor3","donor4","donor5","donor6","unassigned"))
+}
+male = c("UTY","USP9Y","DDX3Y","RPS4Y1","ZFY","KDM5D","EIF1AY")
+
+b1_p2 = ReadSTAR("/media/chang/HDD-5/chang/10x/b1_p2/B1_P2_Solo.out/", sample="B1_P2",
+                 meta="/media/chang/HDD-5/chang/10x/b1_p2/vireo/donor_ids.tsv")
+DefaultAssay(b1_p2) = "cleaned"
+b1_p2$Sample = "Donor"
+b1_p2$Sample[b1_p2$donor_id == "donor0"] = "Ax-12-13"
+b1_p2$Sample[b1_p2$donor_id == "donor1"] = "UCSF-2021-009"
+b1_p2$Sample[b1_p2$donor_id == "donor2"] = "UCSF-2022-006"
+
+b1_p2 = NormalizeData(b1_p2, assay = "cleaned")
+VlnPlot_scCustom(b1_p2, features = c("XIST","UTY","USP9Y","DDX3Y","RPS4Y1","ZFY","KDM5D",
+                                     "EIF1AY","POSTN","CNN1","TAGLN","ACTA2"),
+                                      num_columns = 4, split.by = "donor_id")
+
+
+b1_p3 = ReadSTAR("/media/chang/HDD-5/chang/10x/b1_p3/B1_P3_Solo.out/", sample="B1_P3",
+                 meta="/media/chang/HDD-5/chang/10x/b1_p3/vireo/donor_ids.tsv")
+DefaultAssay(b1_p3) = "cleaned"
+b1_p3$Sample = "Donor"
+b1_p3$Sample[b1_p3$donor_id == "donor0"] = "TB045"
+b1_p3$Sample[b1_p3$donor_id == "donor1"] = "Ax-12-13"
+b1_p3$Sample[b1_p3$donor_id == "donor2"] = "Ax-12-1"
+b1_p3 = NormalizeData(b1_p3, assay = "cleaned")
+VlnPlot_scCustom(b1_p3, features = c("XIST","UTY","USP9Y","DDX3Y","RPS4Y1","ZFY","KDM5D",
+                                     "EIF1AY","POSTN","CNN1","TAGLN","ACTA2"),
+                                      num_columns = 4, split.by = "donor_id")
+FeatureScatter(b1_p3, feature1 = "POSTN", feature2 = "CNN1", group.by = "donor_id", cols=dittoColors())
+
+b1_p4 = ReadSTAR("/media/chang/HDD-5/chang/10x/b1_p4/B1_P4_Solo.out/", sample="B1_P4",
+                 meta="/media/chang/HDD-5/chang/10x/b1_p4/vireo/donor_ids.tsv")
+DefaultAssay(b1_p4) = "cleaned"
+b1_p4$Sample = "Donor"
+b1_p4$Sample[b1_p4$donor_id == "donor0"] = "UCSF-2023-003"
+b1_p4$Sample[b1_p4$donor_id == "donor1"] = "Ax-12-13"
+b1_p4$Sample[b1_p4$donor_id == "donor2"] = "Ax-3623"
+b1_p4$Sample[b1_p4$donor_id == "donor3"] = "Ax-1-10"
+
+b1_p4 = NormalizeData(b1_p4, assay = "cleaned")
+VlnPlot_scCustom(b1_p4, features = c("XIST","UTY","USP9Y","DDX3Y","RPS4Y1","ZFY","KDM5D",
+                                     "EIF1AY","POSTN","CNN1","TAGLN","ACTA2"),
+                                      num_columns = 4, split.by = "donor_id")
+FeatureScatter(b1_p4, feature1 = "POSTN", feature2 = "CNN1", group.by = "donor_id", cols=dittoColors())
+
+b1_p5 = ReadSTAR("/media/chang/HDD-5/chang/10x/b1_p5/B1_P5_Solo.out/", sample="B1_P5",
+                 meta="/media/chang/HDD-5/chang/10x/b1_p5/vireo/donor_ids.tsv")
+DefaultAssay(b1_p5) = "cleaned"
+b1_p5$Sample = "Donor"
+b1_p5$Sample[b1_p5$donor_id == "donor0"] = "UCSF-2023-003"
+b1_p5$Sample[b1_p5$donor_id == "donor1"] = "UCSF-2022-006"
+b1_p5 = NormalizeData(b1_p5, assay = "cleaned")
+b1_p5 = AddModuleScore_UCell(b1_p5, features = list(Male=male), assay = 'cleaned')
+VlnPlot_scCustom(b1_p5, features = c("POSTN","CNN1"), split.by = "donor_id")
+FeatureScatter(b1_p5, feature1 = "POSTN", feature2 = "CNN1", group.by = "donor_id", cols=dittoColors())
+
+b1_p6 = ReadSTAR("/media/chang/HDD-5/chang/10x/b1_p6/B1_P6_Solo.out/", sample="B1_P6",
+                 meta="/media/chang/HDD-5/chang/10x/b1_p6/vireo/donor_ids.tsv")
+DefaultAssay(b1_p6) = "cleaned"
+b1_p6$Sample = "Donor"
+b1_p6$Sample[b1_p6$donor_id == "donor0"] = "UCSF-2021-009"
+b1_p6$Sample[b1_p6$donor_id == "donor1"] = "Ax-12-13"
+b1_p6$Sample[b1_p6$donor_id == "donor2"] = "Ax-1-10"
+
+b1_p6 = NormalizeData(b1_p6, assay = "cleaned")
+b1_p6 = FindVariableFeatures(b1_p6)
+b1_p6 = ScaleData(b1_p6)
+b1_p6 = RunPCA(b1_p6)
+b1_p6 = RunUMAP(b1_p6, dims=1:10)
+FeaturePlot(b1_p6, features = c("POSTN","CNN1"), order=T, max.cutoff = 'q99')& NoAxes()
+cells = CellSelector(FeaturePlot(b1_p6, features = c("CNN1"), order=T, max.cutoff = 'q99'))
+VlnPlot_scCustom(b1_p6, features = c("POSTN","CNN1","XIST"), split.by = "donor_id")
+
+
+b2_p2 = ReadSTAR("/media/chang/HDD-5/chang/10x/b2_p2/B2_P2_Solo.out/", sample="B2_P2",
+                 meta="/media/chang/HDD-5/chang/10x/b2_p2/vireo/donor_ids.tsv")
+DefaultAssay(b2_p2) = "cleaned"
+b2_p2 = NormalizeData(b2_p2, assay = "cleaned")
+b2_p2 = AddModuleScore_UCell(b2_p2, features = list(Male=male), assay = 'cleaned')
+VlnPlot_scCustom(b2_p2, features = c("XIST","UTY","USP9Y","DDX3Y","RPS4Y1","ZFY","KDM5D",
+                                     "EIF1AY","POSTN","CNN1","TAGLN","Male_UCell"),
+                                      num_columns = 4, split.by = "donor_id")
+b2_p2_male = subset(b2_p2, subset=Male_UCell > 0.05)
+b2_p2_male$Sample = "UCSF-2023-003"
+
+b2_p3 = ReadSTAR("/media/chang/HDD-5/chang/10x/b2_p3/B2_P3_Solo.out/", sample="B2_P3",
+                 meta="/media/chang/HDD-5/chang/10x/b2_p3/vireo/donor_ids.tsv")
+DefaultAssay(b2_p3) = "cleaned"
+b2_p3 = NormalizeData(b2_p3, assay = "cleaned")
+b2_p3 = AddModuleScore_UCell(b2_p3, features = list(Male=male), assay = 'cleaned')
+VlnPlot_scCustom(b2_p3, features = c("POSTN","CNN1","XIST"), split.by = "donor_id")
+b2_p3_male = subset(b2_p3, subset=Male_UCell > 0.05)
+b2_p3_male$Sample = "UCSF-2023-003"
+
+b2_p4 = ReadSTAR("/media/chang/HDD-5/chang/10x/b2_p4/B2_P4_Solo.out/", sample="B2_P4",
+                 meta="/media/chang/HDD-5/chang/10x/b2_p4/vireo/donor_ids.tsv")
+DefaultAssay(b2_p4) = "cleaned"
+b2_p4$Sample = "Donor"
+b2_p4$Sample[b2_p4$donor_id == "donor5"] = "Ax1116"
+b2_p4$Sample[b2_p4$donor_id == "donor1"] = "Ax4323"
+b2_p4 = NormalizeData(b2_p4, assay = "cleaned")
+b2_p4 = AddModuleScore_UCell(b2_p4, features = list(Male=male), assay = 'cleaned')
+VlnPlot_scCustom(b2_p4, features = c("XIST","UTY","USP9Y","DDX3Y","RPS4Y1","ZFY","KDM5D",
+                                     "EIF1AY","POSTN","CNN1","TAGLN","ACTA2"),
+                                      num_columns = 4, split.by = "donor_id")
+b2_p4_male = subset(b2_p4, subset=Male_UCell > 0.05)
+b2_p4$Sample[colnames(b2_p4_male)] = "UCSF-2023-003"
+
+b2_p6 = ReadSTAR("/media/chang/HDD-5/chang/10x/b2_p6/B2_P6_Solo.out/", sample="B2_P6",
+                 meta="/media/chang/HDD-5/chang/10x/b2_p6/vireo/donor_ids.tsv")
+DefaultAssay(b2_p6) = "cleaned"
+b2_p6$Sample = "Donor"
+b2_p6$Sample[b2_p6$donor_id == "donor1"] = "Ax2623_TB039"
+b2_p6 = NormalizeData(b2_p6, assay = "cleaned")
+b2_p6 = AddModuleScore_UCell(b2_p6, features = list(Male=male), assay = 'cleaned')
+VlnPlot_scCustom(b2_p6, features = c("POSTN","CNN1","XIST"), split.by = "donor_id")
+b2_p6_male = subset(b2_p6, subset=Male_UCell > 0.05)
+b2_p6$Sample[colnames(b2_p6_male)] = "UCSF-2023-003"
+
+merged_aneu = merge(b1_p2,c(b1_p3,b1_p4,b1_p5,b1_p6,
+                            b2_p2_male,b2_p3_male,b2_p4,b2_p6)) 
+merged_aneu = subset(merged_aneu, subset=Sample != "Donor")
+
+merged_aneu$Dx = "Ruptured"
+merged_aneu$Dx[grepl("UCSF", merged_aneu$Sample)] = "CTRL"
+merged_aneu$Dx[grepl("Ax1116", merged_aneu$Sample)] = "Unrupted_Unstable"
+merged_aneu$Dx[grepl("Ax-12-13", merged_aneu$Sample)] = "Unrupted_Unstable"
+merged_aneu$Dx[grepl("TB045", merged_aneu$Sample)] = "Unrupted_Unstable"
+merged_aneu$Dx[grepl("TB039", merged_aneu$Sample)] = "Unrupted_Unstable"
+merged_aneu$Dx[grepl("Ax4323", merged_aneu$Sample)] = "Unrupted_Stable"
+merged_aneu$Dx[grepl("Ax-3623", merged_aneu$Sample)] = "Unrupted_Stable"
+merged_aneu$Dissociation = "Nuclei"
+saveRDS(merged_aneu,"/media/chang/HDD-5/chang/10x/aneu.rds")
+
+merged_cell_aneu = readRDS("/media/chang/HDD-10/chang/fastqs/aneu/merged.rds")
+merged_cell_aneu$Dx = merged_cell_aneu$Condition
+merged_cell_aneu$Condition = NULL
+merged_cell_aneu$Dx[merged_cell_aneu$Sample == "a219"] = "Ruptured"
+merged_cell_aneu$Dx[merged_cell_aneu$Sample == "a1211"] = "Unruptured_unstable"
+merged_cell_aneu$Dx[merged_cell_aneu$Sample == "a1217"] = "Unruptured_unstable"
+merged_cell_aneu$Dissociation = "Cell"
+
+merged_aneu = merge(merged_aneu,merged_cell_aneu)
+saveRDS(merged_aneu,"/media/chang/HDD-5/chang/10x/aneu_all.rds")
+
+```
+
+```{r}
+g0 = Read10X("/media/chang/HDD-5/chang/CK_GLYOXAL-401395031/G0_L1-ds.fec8f193b24f4c869d67f4dba1c9c2be/G0/filtered_matrix/sensitivity_5/")
+g3 = Read10X("/media/chang/HDD-5/chang/CK_GLYOXAL-401395031/G3_L1-ds.18c22ab2e90b456a913298bee951b5cc/G3/filtered_matrix/sensitivity_3/")
+g4 = Read10X("/media/chang/HDD-5/chang/CK_GLYOXAL-401395031/G4_L1-ds.0f17b8c71e4341799c767240551a831a/G4/filtered_matrix/sensitivity_2/")
+g5 = Read10X("/media/chang/HDD-5/chang/CK_GLYOXAL-401395031/G5_L1-ds.d447b3b8959b46e2976da8ac322e9640/G5/filtered_matrix/sensitivity_2/")
+
+g0 = CreateSeuratObject(g0, project = 'G0')
+g3 = CreateSeuratObject(g3, project = 'G3')
+g4 = CreateSeuratObject(g4, project = 'G4')
+g5 = CreateSeuratObject(g5, project = 'G5')
+
+g = merge(g0, c(g3,g4,g5))
+g = subset(g, subset=nCount_RNA > 1000 & percent.mt<20)
+g = SCTransform(g, vst.flavor='v2')
+g = RunPCA(g,npcs = 10)
+g = RunUMAP(g, dims=1:10)
+g = FindNeighbors(g, dims=1:10)
+g = FindClusters(g, algorithm = 2, resolution = .3)
+DimPlot(g, group.by = c("seurat_clusters","orig.ident"), label=T)&NoAxes()
+
+g$Fix = "Yes"
+g$Fix[g$orig.ident == "G0"] = "No"
+
+g = RunHarmony(g, group.by.vars = "Fix", assay.use = "SCT")
+g = RunUMAP(g, dims=1:10, reduction = 'harmony')
+g = FindNeighbors(g, dims=1:10, reduction = 'harmony')
+g = FindClusters(g, algorithm = 2, resolution = .3)
+DimPlot(g, group.by = c("seurat_clusters","orig.ident"), 
+        label=T, reduction = 'umap')&NoAxes()
+
+VlnPlot(subset(g, idents= c(4,5)), 
+        features = c("nCount_RNA", "nFeature_RNA"))
+VlnPlot(g, group.by = "orig.ident", pt.size = 0,
+        features = c("nCount_RNA", "nFeature_RNA")) & ylim(700,4000)
+VlnPlot(g, group.by = "orig.ident", pt.size = 0,ncol=4,
+        features = c("percent.mt", "percent.rpl","percent.rps","percent.cox")) 
+g[["percent.mt"]] <- PercentageFeatureSet(g, pattern = "^MT-")
+g[["percent.rpl"]] <- PercentageFeatureSet(g, pattern = "^RPL")
+g[["percent.rps"]] <- PercentageFeatureSet(g, pattern = "^RPS")
+g[["percent.cox"]] <- PercentageFeatureSet(g, pattern = "^COX")
+
+dittoBarPlot(subset(g, subset=orig.ident %in% c("G0","G3")), var='orig.ident', group.by = "ident", scale='count')
+
+
+test = FindMarkers(g, group.by = 'orig.ident', ident.1 = 'G3', ident.2 = "G0")
+EnhancedVolcano(test,x="avg_log2FC",y="p_val_adj", lab=rownames(test),
+                xlim = c(-1.5,1.5))
+genes =  rownames(g@assays$RNA@counts)[!grepl("^MT-|^RPS|^RPS", rownames(g@assays$RNA@counts))]
+
+g2 = CreateSeuratObject(g@assays$RNA@counts[genes,])
+g2$orig.ident = g$orig.ident
+VlnPlot(g2, group.by = "orig.ident", pt.size = 0,
+        features = c("nCount_RNA", "nFeature_RNA")) & ylim(700,4000)
+g2 = subset(g2, subset=nCount_RNA > 1000)
+g2 = SCTransform(g2, vst.flavor='v2')
+g2 = RunPCA(g2)
+g2 = RunUMAP(g2, dims=1:10)
+g2 = FindNeighbors(g2, dims=1:10)
+g2 = FindClusters(g2, algorithm = 2, resolution = .3)
+DimPlot(g2, group.by = c("seurat_clusters","orig.ident"), label=T)&NoAxes()
+
+test2 = FindMarkers(g2, group.by = 'orig.ident', ident.1 = 'G3', ident.2 = "G0")
+EnhancedVolcano(test2,x="avg_log2FC",y="p_val_adj", lab=rownames(test2),
+                xlim = c(-1.5,1.5))
+
+FeaturePlot(g, reduction='umap',
+            features = c("GLI3","EOMES","HOPX","SATB2","MKI67","LRRC7","DLX1","SSTR2",
+                         "ARX","KIRREL3","CHL1","MEF2C"), 
+            order=T,max.cutoff = 'q99') & NoAxes()
+
+
+markers = wilcoxauc(g2)
+top_markers(markers)
 ```

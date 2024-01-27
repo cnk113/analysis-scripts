@@ -1,0 +1,141 @@
+---
+title: "SSB"
+output: html_notebook
+---
+
+
+```{r}
+ReadPIP <- function(data.dir, sensitivity,  proj="proj", type='InVivo',sample='sample',
+                    clean=TRUE) {
+  data.dir.genefull = paste0(data.dir, "out/raw_matrix/")
+  raw = Read10X(data.dir.genefull)
+  data.dir.filt = paste0(data.dir, "out/filtered_matrix/sensitivity_", sensitivity)
+  filtered = Read10X(data.dir.filt)
+  seurat = CreateSeuratObject(filtered, project=proj)
+  seurat$Type = type
+  seurat$Sample = sample
+  if(clean == TRUE){
+    sce <- SingleCellExperiment(list(counts = filtered))
+    sce.raw <- SingleCellExperiment(list(counts = raw))
+    
+    sce <- decontX(sce, background = sce.raw)
+    seurat[['cleaned']] = CreateAssayObject(round(decontXcounts(sce)))
+    seurat[['percent.mt']] = PercentageFeatureSet(seurat, pattern = "MT-",assay = 'cleaned')
+    seurat = subset(seurat, subset=nCount_cleaned >= 500)
+    seurat = RunMiQC(seurat, percent.mt = "percent.mt", nFeature_RNA = "nFeature_cleaned", 
+                   model.slot = "flexmix_model")
+  }
+  else{
+    seurat = subset(seurat, cells=colnames(filtered))
+    seurat[['percent.mt']] = PercentageFeatureSet(seurat, pattern = "MT-")
+    seurat = RunMiQC(seurat, percent.mt = "percent.mt", 
+                   nFeature_RNA = "nFeature_RNA", 
+                   model.slot = "flexmix_model")
+  }
+  return(seurat)
+}
+
+
+ctrl = ReadPIP("/media/chang/HDD-5/chang/v5/CTRL_V4_L1_ds.9c08f14cb89849cb8296e859a5fb7e41/", "5", 
+               proj="CTRL",sample="CTRL")
+n7 = ReadPIP("/media/chang/HDD-5/chang/v5/NCP7_V4_L1_ds.5a0ccf88a85e49d8a89bb5063179ae98/", "5", 
+               proj="N7",sample="N7")
+n10 = ReadPIP("/media/chang/HDD-5/chang/v5/NCP10_V4_L1_ds.0fc4a6ecadd8418084290c4b0ec087a3/", "5", 
+               proj="N10",sample="N10")
+t7 = ReadPIP("/media/chang/HDD-5/chang/v5/T7_V4_L1_ds.ef06468dddb54b4bbb3f2e42d00a55ae/", "5", 
+               proj="T7",sample="T7")
+test = merge(ctrl, c(n7,n10,t7))
+test = subset(test, subset=percent.mt < 10)
+test[['cleaned']] = CreateAssayObject(SampleUMI(test@assays$cleaned@counts,max.umi = 4000, upsample = F))
+test = SCTransform(test, vst.flavor = 'v2', assay = 'cleaned')
+test = RunPCA(test, npcs=20)
+test = RunUMAP(test, dims=1:20)
+test = FindNeighbors(test, dims=1:20)
+test = FindClusters(test, algorithm = 2, resolution = .4)
+
+DimPlot_scCustom(test, label=T)
+DimPlot_scCustom(test, group.by = 'orig.ident')
+
+table(test$orig.ident, test$SCT_snn_res.0.4)
+
+VlnPlot(test, features = 'nCount_cleaned') & ylim(500,4000)
+
+test2 = FindMarkers(test, subset.ident = 3,group.by = "orig.ident", ident.1 = "HIV_NCP", 
+                    ident.2 = "CTRL", max.cells.per.ident = 300, assay = "cleaned")
+test3 = FindMarkers(test, subset.ident = 3,group.by = "orig.ident", ident.1 = "T7_SSB", 
+                    ident.2 = "CTRL", max.cells.per.ident = 300, assay = "cleaned")
+test4 = FindMarkers(test, subset.ident = 3,group.by = "orig.ident", ident.1 = "MMLV_NCP", 
+                    ident.2 = "CTRL", max.cells.per.ident = 300, assay = "cleaned")
+test5 = FindMarkers(test, subset.ident = 3,group.by = "orig.ident", ident.1 = "MMLV_NCP", 
+                    ident.2 = "HIV_NCP", max.cells.per.ident = 300, assay = "cleaned")
+
+test2 = test2[test2$p_val_adj < .01,]
+test3 = test3[test3$p_val_adj < .01,]
+test4 = test4[test4$p_val_adj < .01,]
+test5 = test5[test5$p_val_adj < .01,]
+
+head(test2[order(test2$avg_log2FC, decreasing = T),],5)
+head(test3[order(test3$avg_log2FC, decreasing = T),],5)
+head(test4[order(test4$avg_log2FC, decreasing = T),],5)
+head(test5[order(test5$avg_log2FC, decreasing = T),],5)
+
+DefaultAssay(test) = "RNA"
+VlnPlot(subset(test, ident=5), split.by = 'orig.ident', cols = dittoColors(),ncol = 3,slot = 'counts',
+                 features = c('LPCAT1','LRRC7',"STMN2","NRXN3","SOX2","NKAIN2",'CNTNAP2',"GLI3",'nCount_cleaned'))
+
+ss = CreateSeuratObject(SampleUMI(subset(test, ident=0)@assays$cleaned@counts,max.umi = 2000, upsample = F))
+ss = NormalizeData(ss)
+ss$orig.ident = subset(test, ident=0)$orig.ident
+VlnPlot(ss, split.by = 'orig.ident',
+        cols = dittoColors(),ncol = 1,features = 'nCount_RNA')
+VlnPlot(ss, split.by = 'orig.ident',
+        cols = dittoColors(),ncol = 5,slot = 'data',
+                 features = c(rownames(test5),"log10GenesPerUMI"))
+
+VlnPlot(test, features = c('DIO2'), group.by = 'orig.ident')
+FeaturePlot(test, features = c('RNF111','DISC1FP1'), order=T , max.cutoff = 'q99', reduction = 'umap') & NoAxes()
+
+FeaturePlot(test, features = c('EOMES','SATB2',"TBR1","GLI3","LHX6","OLIG2","AQP4","FEZF2",
+                               "SOX2","NEUROD2","NEUROD6","DLX6-AS1","MKI67","AIF1","CLDN5","DCN"), order=T , 
+            max.cutoff = 'q99', reduction = 'umap') & NoAxes()
+
+
+VlnPlot_scCustom(subset(test, ident="4"), split.by = 'orig.ident', features = c('nCount_cleaned','nFeature_cleaned'))&ylim(500,3000)
+
+FeatureScatter(subset(test, ident=5),feature1 = "nCount_cleaned",'nFeature_cleaned', 
+               group.by = "orig.ident", cols = dittoColors(), pt.size = 2) + 
+  xlim(1000,5000) + ylim(500,3000)
+
+test <- Add_Cell_Complexity_Seurat(seurat_object = test, assay = 'cleaned',overwrite = TRUE)
+
+QC_Plots_Complexity(seurat_object = subset(test, ident=5), group.by = 'orig.ident') + ylim(0.9,.99)
+
+FeatureScatter(subset(test, ident=5),feature1 = "nCount_cleaned",'log10GenesPerUMI', 
+               group.by = "orig.ident", cols = dittoColors(), pt.size = 2)  + xlim(1000,4000)
+
+
+
+test <- Add_Mito_Ribo_Seurat(seurat_object = test, species = "Human", assay = 'cleaned',
+                             overwrite = TRUE)
+
+QC_Plot_UMIvsGene(seurat_object = subset(test, ident=5), meta_gradient_name = "percent_ribo", 
+                  low_cutoff_gene = 1000, group.by = 'orig.ident',
+    high_cutoff_gene = 5000, high_cutoff_UMI = 5000, meta_gradient_low_cutoff = 1, 
+    combination = TRUE) & xlim(1000,5000) & ylim(1000,3000)
+
+jd = ReadPIP("/media/chang/HDD-5/chang/v5/JD_L1_ds.7de8ffb2618d4e22834d540a7b6042e3/", "5", 
+               proj="JD",sample="JD")
+jd = subset(jd, subset=miQC.keep == "keep")
+jd = SCTransform(jd, vst.flavor='v2', assay='cleaned')
+jd = RunPCA(jd)
+jd = RunUMAP(jd, dims=1:30)
+jd = FindNeighbors(jd, dims=1:30)
+jd = FindClusters(jd, algorithm = 2, resolution = .4)
+
+DimPlot_scCustom(jd, label=T)
+
+FeaturePlot(jd, features = c('EOMES','SATB2',"TBR1","GLI3","LHX6","OLIG2","AQP4","FEZF2","DLX1","DLX2",
+                             "SOX2","TLE4","NEUROD6","DLX6-AS1","MKI67","HOPX","BCL11B","OLIG1","SP8","BCAS1"), 
+            order=T, max.cutoff = 'q99', reduction = 'umap', ncol = 5) & NoAxes()
+
+```
